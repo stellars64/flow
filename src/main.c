@@ -22,7 +22,7 @@ typedef enum
 	COLOR_RED,
 	COLOR_GREEN,
 	COLOR_BLUE,
-	COLOR_BLACK,
+	COLOR_GOLD,
 	COLOR_ORANGE,
 	COLOR_YELLOW,
 	COLOR_PURPLE,
@@ -98,6 +98,8 @@ bool appendPipeGameBoard(GameBoard *gb, PipePlan plan, size_t row, size_t col, s
 						 size_t *endRow, size_t *endCol);
 void clearPipeGameBoard(GameBoard *gb, PipeColor color);
 void printGameBoard(GameBoard *gb);
+
+void playGame(GameBoard *gb);
 
 void freeGameBoard(GameBoard *gb)
 {
@@ -458,100 +460,7 @@ bool appendPipeGameBoard(GameBoard *gb, PipePlan plan, size_t row, size_t col, s
 			}
 		}
 	}
-	/*
-	printf("\n");
-	printf("Failed to place pipe color %d of size %zu\n", plan.color, plan.size);
-	printf("Position (%zu, %zu) failed\n", row, col);
-	printf("Attempted size: %zu\n", size);
-	printf("\n");
-	*/
-	fflush(stdout);
 	return false;
-
-
-	/*
-	switch (adjacentIndex)
-	{
-		default:
-		case ADJACENT_UP:
-			*gameBoardCell(gb, row - 1, col) = plan.color;
-			if (size == plan.size)
-			{
-				*endRow = row - 1;
-				*endCol = col;
-				return true;
-			}
-			else
-			{
-				pipePlaced = appendPipeGameBoard(gb, plan, row - 1, col, size, endRow, endCol);
-			}
-			break;
-		case ADJACENT_DOWN:
-			*gameBoardCell(gb, row + 1, col) = plan.color;
-			if (size == plan.size)
-			{
-				*endRow = row + 1;
-				*endCol = col;
-				return true;
-			}
-			else
-			{
-				pipePlaced = appendPipeGameBoard(gb, plan, row + 1, col, size, endRow, endCol);
-			}
-			break;
-		case ADJACENT_LEFT:
-			*gameBoardCell(gb, row, col - 1) = plan.color;
-			if (size == plan.size)
-			{
-				*endRow = row;
-				*endCol = col - 1;
-				return true;
-			}
-			else
-			{
-				pipePlaced = appendPipeGameBoard(gb, plan, row, col - 1, size, endRow, endCol);
-			}
-			break;
-		case ADJACENT_RIGHT:
-			*gameBoardCell(gb, row, col + 1) = plan.color;
-			if (size == plan.size)
-			{
-				*endRow = row;
-				*endCol = col + 1;
-				return true;
-			}
-			else
-			{
-				pipePlaced = appendPipeGameBoard(gb, plan, row, col + 1, size, endRow, endCol);
-			}
-			break;
-	}
-	*/
-
-	
-	
-	// if we complete pipe, return true
-	/*
-	if (size == plan.size)
-	{
-
-		return true;
-	}
-
-	// otherwise, continue placing
-	switch (adjacentIndex)
-	{
-		default:
-		case ADJACENT_UP:
-			return appendPipeGameBoard(gb, plan, row - 1, col, size, endRow, endCol);
-		case ADJACENT_DOWN:
-			return appendPipeGameBoard(gb, plan, row + 1, col, size, endRow, endCol);
-		case ADJACENT_LEFT:
-			return appendPipeGameBoard(gb, plan, row, col - 1, size, endRow, endCol);
-		case ADJACENT_RIGHT:
-			return appendPipeGameBoard(gb, plan, row, col + 1, size, endRow, endCol);
-	}
-	*/
 }
 
 void clearPipeGameBoard(GameBoard *gb, PipeColor color)
@@ -591,15 +500,167 @@ void printGameBoard(GameBoard *gb)
 	printf("---------------\n");
 }
 
+void playGame(GameBoard *gb)
+{
+	if (!startSDL())
+	{
+		quitSDL();
+		return;
+	}
+	SDL_Window *window = SDL_CreateWindow("pipes", 0, 0, 800, 600, SDL_WINDOW_SHOWN);
+	SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+	int windowWidth, windowHeight;
+	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+	
+	int boardHeight = windowHeight - 100;
+	int boardWidth = boardHeight;
+	int cellSize = boardHeight / gb->rows;
+	int boardX = (windowWidth - boardWidth) / 2;
+	int boardY = (windowHeight - boardHeight) / 2;
+
+	PipeColor selectedColor = COLOR_EMPTY;
+	bool piping = false;
+	int lastPipeRow, lastPipeCol;
+
+	bool running = true;
+	while (running)
+	{
+		int mouseX, mouseY;
+		bool isCellHovered = false;
+		int hoveredCellRow, hoveredCellCol;
+		SDL_Event event;
+
+		SDL_GetMouseState(&mouseX, &mouseY);
+		if (mouseX >= boardX && mouseX <= boardX + boardWidth
+			&& mouseY >= boardY && mouseY <= boardY + boardHeight)
+		{
+			isCellHovered = true;
+			hoveredCellRow = (mouseY - boardY) / cellSize;
+			hoveredCellCol = (mouseX - boardX) / cellSize;
+			if (piping && (hoveredCellRow != lastPipeRow || hoveredCellCol != lastPipeCol))
+			{
+				if (gameBoardNumAdjacentWithColor(gb, hoveredCellRow, hoveredCellCol, selectedColor) > 0)
+				{
+					*gameBoardCell(gb, hoveredCellRow, hoveredCellCol) = selectedColor;
+					lastPipeRow = hoveredCellRow;
+					lastPipeCol = hoveredCellCol;
+				}
+			}
+		}
+
+		while (SDL_PollEvent(&event))
+		{
+			if (event.type == SDL_QUIT)
+			{
+				running = false;
+			}
+			if (event.type == SDL_MOUSEBUTTONDOWN)
+			{
+				if (!piping && isCellHovered)
+				{
+					selectedColor = *gameBoardCell(gb, hoveredCellRow, hoveredCellCol);
+					if (selectedColor != COLOR_EMPTY)
+					{
+						piping = true;
+					}
+				}
+			}
+			if (event.type == SDL_MOUSEBUTTONUP)
+			{
+				piping = false;			
+			}
+		}
+
+		SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
+		SDL_RenderClear(renderer);
+		SDL_SetRenderDrawColor(renderer, 25, 25, 25, 255);
+		SDL_Rect pipeBackgroundRect = {boardX, boardY, boardWidth, boardHeight};
+		SDL_RenderFillRect(renderer, &pipeBackgroundRect);
+
+		for (int r = 0; r < gb->rows; r++)
+		{
+			for (int c = 0; c < gb->cols; c++)
+			{
+				int red, green, blue;
+
+				switch (*gameBoardCell(gb, r, c))
+				{
+					case COLOR_EMPTY:
+						red = 0; green = 0; blue = 0;
+						break;
+					case COLOR_RED:
+						red = 255; green = 0; blue = 0;
+						break;
+					case COLOR_GREEN:
+						red = 0; green = 255; blue = 0;
+						break;
+					case COLOR_BLUE:
+						red = 0; green = 0; blue = 255;
+						break;
+					case COLOR_GOLD:
+						red = 125; green = 125; blue = 0;
+						break;
+					case COLOR_ORANGE:
+						red = 255; green = 128; blue = 0;
+						break;
+					case COLOR_YELLOW:
+						red = 255; green = 255; blue = 0;
+						break;
+					case COLOR_PURPLE:
+						red = 128; green = 0; blue = 255;
+						break;
+					case COLOR_CYAN:
+						red = 0; green = 255; blue = 255;
+						break;
+					case COLOR_AQUA:
+						red = 0; green = 128; blue = 255;
+						break;
+					case COLOR_MAGENTA:
+						red = 255; green = 0; blue = 255;
+						break;
+					case COLOR_PINK:
+						red = 255; green = 0; blue = 128;
+						break;
+					default:
+						red = 0; green = 0; blue = 0;
+						break;
+				}
+
+				if (isCellHovered && r == hoveredCellRow && c == hoveredCellCol)
+				{
+					// make cell brighter by averaging it with 255
+					red = (red + 255) / 2;
+					green = (green + 255) / 2;
+					blue = (blue + 255) / 2;
+				}
+
+				SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
+
+				SDL_Rect destination = {
+					c * cellSize + boardX + 7, 
+					r * cellSize + boardY + 7, 
+					cellSize-10, 
+					cellSize-10
+				};
+				SDL_RenderFillRect(renderer, &destination);
+			}
+		}
+		SDL_RenderPresent(renderer);
+	}
+
+	SDL_DestroyRenderer(renderer);
+	SDL_DestroyWindow(window);
+	quitSDL();
+}
+
 int main(int argc, char *argv[])
 {
 	#define PIPECOUNT 8
 	srand(time(NULL));
 
-	/*
 	if (startSDL())
 	{
-	*/
+
 		GameBoard board;
 		initGameBoard(&board, 8, 8);
 
@@ -638,10 +699,11 @@ int main(int argc, char *argv[])
 		}
 		printf("And here is the board with just the endpoints:\n");
 		printGameBoard(&board);
+
+		playGame(&board);
+
 		freeGameBoard(&board);
-	/*
 	}
-	*/
-	//quitSDL();
+	quitSDL();
 	return 0;
 }
