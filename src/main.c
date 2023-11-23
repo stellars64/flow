@@ -350,24 +350,6 @@ bool placePipeGameBoard(GameBoard *gb, PipePlan plan, size_t *startRow, size_t *
 	}
 	freeGameBoard(&rejectBoard);
 	return false;
-
-
-	/*
-	size_t startIndex = randEmptyGameBoard(gb);
-	if (startIndex == -1)
-	{
-		return false;
-	}
-
-	// place pipe start
-	size_t startRow = startIndex / gb->cols;
-	size_t startCol = startIndex % gb->cols;
-	size_t currentSize = 1;
-	*gameBoardCell(gb, startRow, startCol) = plan.color;
-
-	// recursively place future pipes
-	return appendPipeGameBoard(gb, plan, startRow, startCol, currentSize);
-	*/
 }
 
 
@@ -415,15 +397,79 @@ bool appendPipeGameBoard(GameBoard *gb, PipePlan plan, size_t row, size_t col, s
 		return false;
 	}
 
-	// pick random adjacent cell
-	size_t adjacentIndex = rand() % 4;
-	while (!adjacentAvailable[adjacentIndex])
-	{
-		adjacentIndex = rand() % 4;
-	}
-
-	// place pipe
 	size += 1;
+	while (anyAdjacentAvailable)
+	{
+		// pick random adjacent cell
+		size_t adjacentIndex = rand() % 4;
+		while (!adjacentAvailable[adjacentIndex])
+		{
+			adjacentIndex = rand() % 4;
+		}
+		size_t adjRow;
+		size_t adjCol;
+		switch (adjacentIndex)
+		{
+			default:
+			case ADJACENT_UP:
+				adjRow = row - 1;
+				adjCol = col;
+				break;
+			case ADJACENT_DOWN:
+				adjRow = row + 1;
+				adjCol = col;
+				break;
+			case ADJACENT_LEFT:
+				adjRow = row;
+				adjCol = col - 1;
+				break;
+			case ADJACENT_RIGHT:
+				adjRow = row;
+				adjCol = col + 1;
+				break;
+		}
+
+		// attempt to place the pipe
+		bool pipePlaced = false;
+		*gameBoardCell(gb, adjRow, adjCol) = plan.color;
+		if (size == plan.size)
+		{
+			*endRow = adjRow;
+			*endCol = adjCol;
+			return true;
+		}
+		else
+		{
+			if (appendPipeGameBoard(gb, plan, adjRow, adjCol, size, endRow, endCol))
+			{
+				return true;
+			}
+			else
+			{
+				adjacentAvailable[adjacentIndex] = false;
+				anyAdjacentAvailable = false;
+				for (size_t i = 0; i < 4; i++)
+				{
+					if (adjacentAvailable[i])
+					{
+						anyAdjacentAvailable = true;
+					}
+				}
+			}
+		}
+	}
+	/*
+	printf("\n");
+	printf("Failed to place pipe color %d of size %zu\n", plan.color, plan.size);
+	printf("Position (%zu, %zu) failed\n", row, col);
+	printf("Attempted size: %zu\n", size);
+	printf("\n");
+	*/
+	fflush(stdout);
+	return false;
+
+
+	/*
 	switch (adjacentIndex)
 	{
 		default:
@@ -437,7 +483,7 @@ bool appendPipeGameBoard(GameBoard *gb, PipePlan plan, size_t row, size_t col, s
 			}
 			else
 			{
-				return appendPipeGameBoard(gb, plan, row - 1, col, size, endRow, endCol);
+				pipePlaced = appendPipeGameBoard(gb, plan, row - 1, col, size, endRow, endCol);
 			}
 			break;
 		case ADJACENT_DOWN:
@@ -450,7 +496,7 @@ bool appendPipeGameBoard(GameBoard *gb, PipePlan plan, size_t row, size_t col, s
 			}
 			else
 			{
-				return appendPipeGameBoard(gb, plan, row + 1, col, size, endRow, endCol);
+				pipePlaced = appendPipeGameBoard(gb, plan, row + 1, col, size, endRow, endCol);
 			}
 			break;
 		case ADJACENT_LEFT:
@@ -463,7 +509,7 @@ bool appendPipeGameBoard(GameBoard *gb, PipePlan plan, size_t row, size_t col, s
 			}
 			else
 			{
-				return appendPipeGameBoard(gb, plan, row, col - 1, size, endRow, endCol);
+				pipePlaced = appendPipeGameBoard(gb, plan, row, col - 1, size, endRow, endCol);
 			}
 			break;
 		case ADJACENT_RIGHT:
@@ -476,10 +522,13 @@ bool appendPipeGameBoard(GameBoard *gb, PipePlan plan, size_t row, size_t col, s
 			}
 			else
 			{
-				return appendPipeGameBoard(gb, plan, row, col + 1, size, endRow, endCol);
+				pipePlaced = appendPipeGameBoard(gb, plan, row, col + 1, size, endRow, endCol);
 			}
 			break;
 	}
+	*/
+
+	
 	
 	// if we complete pipe, return true
 	/*
@@ -552,7 +601,7 @@ int main(int argc, char *argv[])
 	{
 	*/
 		GameBoard board;
-		initGameBoard(&board, 8, 10);
+		initGameBoard(&board, 8, 8);
 
 		PipePlan plans[PIPECOUNT];
 		size_t startRows[PIPECOUNT];
@@ -561,7 +610,7 @@ int main(int argc, char *argv[])
 		size_t endCols[PIPECOUNT];
 		for (int p = 0; p < PIPECOUNT; p++)
 		{
-			plans[p].size = 10;
+			plans[p].size = 8;
 			plans[p].color = p + 1;
 		}
 
