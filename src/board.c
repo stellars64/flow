@@ -2,15 +2,9 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <time.h>
+
 #include "board.h"
 
-typedef enum
-{
-	DIRECTION_UP = 0,
-	DIRECTION_DOWN = 1,
-	DIRECTION_LEFT = 2,
-	DIRECTION_RIGHT = 3
-} Direction;
 
 bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe);
 
@@ -208,9 +202,6 @@ i32 boardAdjacentWithColor(Board *board, i32 row, i32 col, CellColor color)
 
 bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 currentSize, i32 row, i32 col)
 {
-	boardPrint(board);
-	printf("---------------------\n");
-
 	// order: U,D,L,R
 	bool rejected[4] = {true, true, true, true};
 	i32 numRejected = 4;
@@ -346,9 +337,6 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 curr
 
 bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe)
 {
-	boardPrint(board);
-	printf("---------------------\n");
-
 	i32 rejectedSize = board->width * board->height;
 	bool *rejected = malloc(sizeof(bool) * rejectedSize);
 	for (i32 i = 0; i < rejectedSize; i++)

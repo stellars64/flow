@@ -6,6 +6,14 @@
 
 typedef enum
 {
+	DIRECTION_UP = 0,
+	DIRECTION_DOWN = 1,
+	DIRECTION_LEFT = 2,
+	DIRECTION_RIGHT = 3
+} Direction;
+
+typedef enum
+{
 	CELLCOLOR_RED,
 	CELLCOLOR_GREEN,
 	CELLCOLOR_BLUE,
@@ -15,6 +23,9 @@ typedef enum
 	CELLCOLOR_WHITE,
 	CELLCOLOR_MAGENTA,
 	CELLCOLOR_PINK,
+	CELLCOLOR_DARK_RED,
+	CELLCOLOR_DARK_GREEN,
+	CELLCOLOR_DARK_BLUE,
 	CELLCOLOR_COUNT
 } CellColor;
 
@@ -71,12 +82,5 @@ Cell* boardGetI(Board *board, i32 index);
 void boardPrint(Board *board);
 //
 bool boardGenerate(Board *board, i32 numColors);
-
-
-
-
-
-
-
 
 #endif
