@@ -5,63 +5,14 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_mixer.h>
 
-#define ADJACENT_UP 0
-#define ADJACENT_DOWN 1
-#define ADJACENT_LEFT 2
-#define ADJACENT_RIGHT 3
+#include "board.h"
 
-/*
-static uint32_t board[4*4];
-static uint32_t available[4*4]; // 32 bits means it can track pipes 32 long
-static uint32_t starts[4*4]; // do we need this?
-static bool test[10][5] = {false};
-*/
+#define CHUNK_CLICK_001 0
+#define CHUNK_YUH 1
 
-typedef enum
-{
-	COLOR_EMPTY = 0,
-	COLOR_RED,
-	COLOR_GREEN,
-	COLOR_BLUE,
-	COLOR_GOLD,
-	COLOR_ORANGE,
-	COLOR_YELLOW,
-	COLOR_PURPLE,
-	COLOR_CYAN,
-	COLOR_AQUA,
-	COLOR_MAGENTA,
-	COLOR_PINK,
-	NUM_COLORS
-} PipeColor;
-
-// an enum for temporary board values, used in algorithms
-typedef enum
-{
-	TEMP_PIPE = NUM_COLORS,
-	TEMP_EMPTY_VISITED
-} TempCellState;
-
-typedef struct
-{
-	uint32_t *cells;
-	size_t rows;
-	size_t cols;
-} GameBoard;
-
-typedef struct
-{
-	size_t size;
-	PipeColor color;
-} PipePlan;
-
-typedef struct
-{
-	PipePlan *plans;
-} PipePlans;
-
-// ---------------- SDL funcs -----------------
 bool startSDL();
 void quitSDL();
+void playFlow(SDL_Window *window, SDL_Renderer *renderer, Mix_Chunk *sounds[]);
 
 bool startSDL()
 {
@@ -90,730 +41,248 @@ void quitSDL()
 	SDL_Quit();
 }
 
-// -------------- GameBoard funcs ------------------
-void freeGameBoard(GameBoard *gb);
-void initGameBoard(GameBoard *gb, size_t rows, size_t cols);
-void zeroGameBoard(GameBoard *gb);
-uint32_t* gameBoardCell(GameBoard *gb, size_t row, size_t col);
-size_t gameBoardNumAdjacentWithColor(GameBoard *gb, size_t row, size_t col, PipeColor color);
-bool hasEmptyCellGameBoard(GameBoard *gb);
-size_t randEmptyGameBoard(GameBoard *gb);
-void dfsFillGameBoard(GameBoard *gb, size_t row, size_t col, uint32_t from, uint32_t to);
-bool isEmptyConnectedGameBoard(GameBoard *gb, size_t row, size_t col);
-bool placePipeGameBoard(GameBoard *gb, PipePlan plan, size_t *startRow, size_t *startCol, size_t *endRow, size_t *endCol);
-bool appendPipeGameBoard(GameBoard *gb, PipePlan plan, size_t row, size_t col, size_t size, 
-						 size_t *endRow, size_t *endCol);
-void clearPipeGameBoard(GameBoard *gb, PipeColor color);
-void printGameBoard(GameBoard *gb);
 
-void getPipeColorRgb(PipeColor color, int *r, int *g, int *b);
-void playGame(GameBoard *gb);
-
-void freeGameBoard(GameBoard *gb)
+void playFlow(SDL_Window *window, SDL_Renderer *renderer, Mix_Chunk *sounds[])
 {
-	// free heap alloced mem
-	if (gb->cells)
-	{
-		free(gb->cells);
-		gb->cells = NULL;
-	}
-	gb->rows = 0;
-	gb->cols = 0;
-}
+	// generate a game board
+	Board *board = boardCreate(5, 8);
+	boardGenerate(board, 8);
 
-void initGameBoard(GameBoard *gb, size_t rows, size_t cols)
-{
-	gb->cells = malloc(rows * cols * sizeof(uint32_t));
-	gb->rows = rows;
-	gb->cols = cols;
-	zeroGameBoard(gb);
-}
-
-void zeroGameBoard(GameBoard *gb)
-{
-
-	for (size_t r = 0; r < gb->rows; r++)
-	{
-		for (size_t c = 0; c < gb->cols; c++)
-		{
-			*gameBoardCell(gb, r, c) = 0;
-		}
-	}
-}
-
-uint32_t* gameBoardCell(GameBoard *gb, size_t row, size_t col)
-{
-	if (row >= gb->rows || col >= gb->cols)
-	{
-		return NULL;
-	}
-	return &gb->cells[row * gb->cols + col];
-}
-
-size_t gameBoardNumAdjacentWithColor(GameBoard *gb, size_t row, size_t col, PipeColor color)
-{
-	size_t count = 0;
-	if (row > 0 && *gameBoardCell(gb, row - 1, col) == color)
-		count++;
-
-	if (row < gb->rows - 1 && *gameBoardCell(gb, row + 1, col) == color)
-		count++;
-
-	if (col > 0 && *gameBoardCell(gb, row, col - 1) == color)
-		count++;
-
-	if (col < gb->cols - 1 && *gameBoardCell(gb, row, col + 1) == color)
-		count++;
-
-	return count;
-}
-
-bool hasEmptyCellGameBoard(GameBoard *gb)
-{
-	for (size_t r = 0; r < gb->rows; r++)
-	{
-		for (size_t c = 0; c < gb->cols; c++)
-		{
-			if (*gameBoardCell(gb, r, c) == COLOR_EMPTY)
-			{
-				return true;
-			}
-		}
-	}
-	return false;
-}
-
-size_t randEmptyGameBoard(GameBoard *gb)
-{
-	if (!hasEmptyCellGameBoard(gb))
-	{
-		return -1;
-	}
-
-	size_t r = rand() % gb->rows;
-	size_t c = rand() % gb->cols;
-	while (*gameBoardCell(gb, r, c) != 0)
-	{
-		r = rand() % gb->rows;
-		c = rand() % gb->cols;
-	}
-	return r * gb->cols + c;
-}
-
-void dfsFillGameBoard(GameBoard *gb, size_t row, size_t col, uint32_t from, uint32_t to)
-{
-	// if out of bounds, return
-	if (row < 0 || row >= gb->rows || col < 0 ||  col >= gb->cols)
-	{
-		return;
-	}
-
-	// if not the from value, return
-	if (*gameBoardCell(gb, row, col) == from)
-	{
-		*gameBoardCell(gb, row, col) = to;
-		dfsFillGameBoard(gb, row-1, col,   from, to);
-		dfsFillGameBoard(gb, row+1, col,   from, to);
-		dfsFillGameBoard(gb, row,   col-1, from, to);
-		dfsFillGameBoard(gb, row,   col+1, from, to);
-	}
-}
-
-// are all the empty cells connected to each other, given that a pipe is placed at row, col?
-bool isEmptyConnectedGameBoard(GameBoard *gb, size_t row, size_t col)
-{
-	// place a temporary pipe at row, col
-	*gameBoardCell(gb, row, col) = TEMP_PIPE;
-
-	// find the first empty cell
-	size_t emptyRow = -1;
-	size_t emptyCol = -1;
-	for (size_t r = 0; r < gb->rows; r++)
-	{
-		for (size_t c = 0; c < gb->cols; c++)
-		{
-			if (*gameBoardCell(gb, r, c) == COLOR_EMPTY)
-			{
-				emptyRow = r;
-				emptyCol = c;
-				break;
-			}
-		}
-	}
-
-	// trivially true if no empty cells
-	if (emptyRow == -1)
-	{
-		return true;
-	}
-
-	// recursively fill the empty cells with TEMP_EMPTY_VISITED
-	dfsFillGameBoard(gb, emptyRow, emptyCol, COLOR_EMPTY, TEMP_EMPTY_VISITED);
-
-	// check if all empty cells are filled with TEMP_EMPTY_VISITED, and also reset them back
-	// to COLOR_EMPTY
-	bool allVisited = true;
-	for (size_t r = 0; r < gb->rows; r++)
-	{
-		for (size_t c = 0; c < gb->cols; c++)
-		{
-			if (*gameBoardCell(gb, r, c) == COLOR_EMPTY)
-			{
-				allVisited = false;
-			}
-			else if (*gameBoardCell(gb, r, c) == TEMP_EMPTY_VISITED)
-			{
-				*gameBoardCell(gb, r, c) = COLOR_EMPTY;
-			}
-		}
-	}
-
-	// reset the temporary pipe back to empty
-	*gameBoardCell(gb, row, col) = COLOR_EMPTY;
-
-	return allVisited;
-}
-
-bool placePipeGameBoard(GameBoard *gb, PipePlan plan, size_t *startRow, size_t *startCol,
-						size_t *endRow, size_t *endCol)
-{
-	// 0 means available, 1 means unavailable
-	GameBoard rejectBoard;
-	initGameBoard(&rejectBoard, gb->rows, gb->cols);
-
-	size_t startIndex = -1;
-	while (true)
-	{
-		// count the number of non-rejected empty cells
-		size_t nonRejectedEmpty = 0;
-		for (size_t r = 0; r < gb->rows; r++)
-		{
-			for (size_t c = 0; c < gb->cols; c++)
-			{
-				if (*gameBoardCell(gb, r, c) == COLOR_EMPTY 
-					&& *gameBoardCell(&rejectBoard, r, c) == 0)
-				{
-					nonRejectedEmpty += 1;
-				}
-			}
-		}
-		if (nonRejectedEmpty == 0)
-		{
-			freeGameBoard(&rejectBoard);
-			return false;
-		}
-
-		// choose a random empty position to start at. nonRejectedEmpty is > 0, so this
-		// will not return -1
-		size_t index = randEmptyGameBoard(gb);
-		*startRow = index / gb->cols;
-		*startCol = index % gb->cols;
-
-		while (true)
-		{
-			// the random empty position is not rejected, yet
-			if (*gameBoardCell(&rejectBoard, *startRow, *startCol) == 0)
-			{
-				// check to see if placing a pipe here will keep all empty cells connected
-				if (isEmptyConnectedGameBoard(gb, *startRow, *startCol))
-				{
-					// found a good starting position
-					break;
-				}
-				// if not, reject it, and we have one less non-rejected empty cell
-				else
-				{
-					*gameBoardCell(&rejectBoard, *startRow, *startCol) = 1;
-					nonRejectedEmpty -= 1;
-
-					// if there are no more non-rejected empty cells, then we cannot place
-					// the pipe
-					if (nonRejectedEmpty == 0)
-					{
-						freeGameBoard(&rejectBoard);
-						return false;
-					}
-				}
-			}
-
-			// choose a new random empty position
-			index = randEmptyGameBoard(gb);
-			*startRow = index / gb->cols;
-			*startCol = index % gb->cols;
-		}
-
-		size_t currentSize = 1;
-		*gameBoardCell(gb, *startRow, *startCol) = plan.color;
-
-		bool placed = appendPipeGameBoard(gb, plan, *startRow, *startCol, currentSize, endRow, endCol);
-		if (placed)
-		{
-			freeGameBoard(&rejectBoard);
-			return true;
-		}
-		else
-		{
-			// mark this cell as rejected, clear all cells with the current pipe color, try again
-			*gameBoardCell(&rejectBoard, *startRow, *startCol) = 1;
-			clearPipeGameBoard(gb, plan.color);
-		}
-	}
-	freeGameBoard(&rejectBoard);
-	return false;
-}
-
-
-bool appendPipeGameBoard(GameBoard *gb, PipePlan plan, size_t row, size_t col, size_t size, 
-						 size_t *endRow, size_t *endCol)
-{
-	bool adjacentAvailable[4] = {false, false, false, false};
-	bool anyAdjacentAvailable = false;
-
-	if (row > 0
-		&& *gameBoardCell(gb, row-1, col) == COLOR_EMPTY
-		&& gameBoardNumAdjacentWithColor(gb, row-1, col, plan.color) < 2
-		&& isEmptyConnectedGameBoard(gb, row-1, col))
-	{
-		adjacentAvailable[ADJACENT_UP] = true;
-		anyAdjacentAvailable = true;
-	}
-	if (row < gb->rows - 1
-		&& *gameBoardCell(gb, row+1, col) == COLOR_EMPTY
-		&& gameBoardNumAdjacentWithColor(gb, row+1, col, plan.color) < 2
-		&& isEmptyConnectedGameBoard(gb, row+1, col))
-	{
-		adjacentAvailable[ADJACENT_DOWN] = true;
-		anyAdjacentAvailable = true;
-	}
-	if (col > 0
-		&& *gameBoardCell(gb, row, col-1) == COLOR_EMPTY
-		&& gameBoardNumAdjacentWithColor(gb, row, col-1, plan.color) < 2
-		&& isEmptyConnectedGameBoard(gb, row, col-1))
-	{
-		adjacentAvailable[ADJACENT_LEFT] = true;
-		anyAdjacentAvailable = true;
-	}
-	if (col < gb->cols - 1
-		&& *gameBoardCell(gb, row, col+1) == COLOR_EMPTY
-		&& gameBoardNumAdjacentWithColor(gb, row, col+1, plan.color) < 2
-		&& isEmptyConnectedGameBoard(gb, row, col+1))
-	{
-		adjacentAvailable[ADJACENT_RIGHT] = true;
-		anyAdjacentAvailable = true;
-	}
-
-	if (!anyAdjacentAvailable)
-	{
-		return false;
-	}
-
-	size += 1;
-	while (anyAdjacentAvailable)
-	{
-		// pick random adjacent cell
-		size_t adjacentIndex = rand() % 4;
-		while (!adjacentAvailable[adjacentIndex])
-		{
-			adjacentIndex = rand() % 4;
-		}
-		size_t adjRow;
-		size_t adjCol;
-		switch (adjacentIndex)
-		{
-			default:
-			case ADJACENT_UP:
-				adjRow = row - 1;
-				adjCol = col;
-				break;
-			case ADJACENT_DOWN:
-				adjRow = row + 1;
-				adjCol = col;
-				break;
-			case ADJACENT_LEFT:
-				adjRow = row;
-				adjCol = col - 1;
-				break;
-			case ADJACENT_RIGHT:
-				adjRow = row;
-				adjCol = col + 1;
-				break;
-		}
-
-		// attempt to place the pipe
-		bool pipePlaced = false;
-		*gameBoardCell(gb, adjRow, adjCol) = plan.color;
-		if (size == plan.size)
-		{
-			*endRow = adjRow;
-			*endCol = adjCol;
-			return true;
-		}
-		else
-		{
-			if (appendPipeGameBoard(gb, plan, adjRow, adjCol, size, endRow, endCol))
-			{
-				return true;
-			}
-			else
-			{
-				adjacentAvailable[adjacentIndex] = false;
-				anyAdjacentAvailable = false;
-				for (size_t i = 0; i < 4; i++)
-				{
-					if (adjacentAvailable[i])
-					{
-						anyAdjacentAvailable = true;
-					}
-				}
-			}
-		}
-	}
-	return false;
-}
-
-void clearPipeGameBoard(GameBoard *gb, PipeColor color)
-{
-	for (size_t r = 0; r < gb->rows; r++)
-	{
-		for (size_t c = 0; c < gb->cols; c++)
-		{
-			if (*gameBoardCell(gb, r, c) == color)
-			{
-				*gameBoardCell(gb, r, c) = 0;
-			}
-		}
-	}
-}
-
-
-void printGameBoard(GameBoard *gb)
-{
-	printf("---- Board ----\n");
-	for (size_t r = 0; r < gb->rows; r++)
-	{
-		printf("    ");
-		for (size_t c = 0; c < gb->cols; c++)
-		{
-			if (*gameBoardCell(gb, r, c) == COLOR_EMPTY)
-			{
-				printf("_ ");
-			}
-			else
-			{
-				printf("%i ", *gameBoardCell(gb, r, c));
-			}
-		}
-		printf("\t\n");
-	}
-	printf("---------------\n");
-}
-
-void getPipeColorRgb(PipeColor color, int *r, int *g, int *b)
-{
-	switch (color)
-	{
-		case COLOR_EMPTY:
-			*r=0; *g=0; *b=0;
-			break;
-		case COLOR_RED:
-			*r=255; *g=0; *b=0;
-			break;
-		case COLOR_GREEN:
-			*r=0; *g=255; *b=0;
-			break;
-		case COLOR_BLUE:
-			*r=0; *g=0; *b=255;
-			break;
-		case COLOR_GOLD:
-			*r=125; *g=125; *b=0;
-			break;
-		case COLOR_ORANGE:
-			*r=255; *g=128; *b=0;
-			break;
-		case COLOR_YELLOW:
-			*r=255; *g=255; *b=0;
-			break;
-		case COLOR_PURPLE:
-			*r=128; *g=0; *b=255;
-			break;
-		case COLOR_CYAN:
-			*r=0; *g=255; *b=255;
-			break;
-		case COLOR_AQUA:
-			*r=0; *g=128; *b=255;
-			break;
-		case COLOR_MAGENTA:
-			*r=255; *g=0; *b=255;
-			break;
-		case COLOR_PINK:
-			*r=255; *g=0; *b=128;
-			break;
-		default:
-			*r=0; *g=0; *b=0;
-			break;
-	}
-}
-
-void playGame(GameBoard *gb)
-{
-	if (!startSDL())
-	{
-		quitSDL();
-		return;
-	}
-
-	// Load sounds here, for now
-	Mix_Chunk *placePipeSound = Mix_LoadWAV("assets/Audio/click_001.wav");
-	Mix_Chunk *yuhSound = Mix_LoadWAV("assets/Audio/YUH.wav");
-
-
-	SDL_Window *window = SDL_CreateWindow("pipes", 0, 0, 800, 600, SDL_WINDOW_SHOWN);
-	SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-	int windowWidth, windowHeight;
+	// dimensions for drawing the board
+	i32 windowWidth, windowHeight;
 	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
-	
-	int boardHeight = windowHeight - 100;
-	int boardWidth = boardHeight;
-	int cellSize = boardHeight / gb->rows;
-	int boardX = (windowWidth - boardWidth) / 2;
-	int boardY = (windowHeight - boardHeight) / 2;
+	i32 boardWidth = windowWidth * 0.8;
+	i32 boardHeight = windowHeight * 0.8;
+	i32 boardX = (windowWidth - boardWidth) / 2;
+	i32 boardY = (windowHeight - boardHeight) / 2;
+	i32 cellWidth = boardWidth / 5;
+	i32 cellHeight = boardHeight / 5;
 
-	// information related to laying down pipe
-	PipeColor selectedColor = COLOR_EMPTY;
+	// information related to runnin' pipe
+	CellColor selectedColor = CELLCOLOR_RED;
 	bool piping = false;
-	int lastPipeRow, lastPipeCol;
-	int startPipeRow, startPipeCol;
+	CellState endPoint = CELLSTATE_PIPE_END; // pretty dumb, but we can start at end and go to start
+	i32 lastPipeRow=0, lastPipeCol=0, startPipeRow=0, startPipeCol=0;
 
-	// the pipes will be stored in a separate board, for easy erasing
-	GameBoard pipeBoard;
-	initGameBoard(&pipeBoard, gb->rows, gb->cols);
-	printGameBoard(&pipeBoard);
-	
+	// user input info
+	i32 mouseX=0, mouseY=0;
+	bool isCellHovered = false;
+	i32 hoveredCellRow=0, hoveredCellCol=0;
+	SDL_Event event;
 
-	bool running = true;
-	while (running)
+	bool gameRunning = true;
+	while (gameRunning)
 	{
-		int mouseX, mouseY;
-		bool isCellHovered = false;
-		int hoveredCellRow, hoveredCellCol;
-		SDL_Event event;
-
+		// input
 		SDL_GetMouseState(&mouseX, &mouseY);
-		if (mouseX >= boardX && mouseX <= boardX + boardWidth
-			&& mouseY >= boardY && mouseY <= boardY + boardHeight)
+		if (mouseX >= boardX && mouseX <= (boardX + boardWidth)
+		    && mouseY >= boardY && mouseY <= (boardY + boardHeight))
 		{
 			isCellHovered = true;
-			hoveredCellRow = (mouseY - boardY) / cellSize;
-			hoveredCellCol = (mouseX - boardX) / cellSize;
-			if (piping && (hoveredCellRow != lastPipeRow || hoveredCellCol != lastPipeCol))
+			hoveredCellRow = (mouseY - boardY) / cellHeight;
+			hoveredCellCol = (mouseX - boardX) / cellWidth;
+
+			if (piping 
+			    && (hoveredCellRow != lastPipeRow || hoveredCellCol != lastPipeCol)
+				&& ((abs(hoveredCellRow - lastPipeRow) == 1 && hoveredCellCol == lastPipeCol)
+				    || (abs(hoveredCellCol - lastPipeCol) == 1 && hoveredCellRow == lastPipeRow)))
 			{
-				if (*gameBoardCell(gb, hoveredCellRow, hoveredCellCol) == COLOR_EMPTY
-					&& *gameBoardCell(&pipeBoard, hoveredCellRow, hoveredCellCol) == COLOR_EMPTY)
+				printf("On a new cell\n");
+				if (boardGet(board, hoveredCellRow, hoveredCellCol)->state == CELLSTATE_EMPTY)
 				{
-					*gameBoardCell(&pipeBoard, hoveredCellRow, hoveredCellCol) = selectedColor;
+					boardSetColor(board, hoveredCellRow, hoveredCellCol, selectedColor);
+					boardSetState(board, hoveredCellRow, hoveredCellCol, CELLSTATE_PIPE_H);
 					lastPipeRow = hoveredCellRow;
 					lastPipeCol = hoveredCellCol;
-					Mix_PlayChannel(-1, placePipeSound, 0);
+					Mix_PlayChannel(-1, sounds[CHUNK_CLICK_001], 0);
 				}
-				// we found the end of the pipe, so now we are done and are not piping
-				// solidify by transferring this color to the gameBoard
-				else if (*gameBoardCell(gb, hoveredCellRow, hoveredCellCol) == selectedColor
-				         && (hoveredCellRow != startPipeRow || hoveredCellCol != startPipeCol))
+				else if (boardGet(board, hoveredCellRow, hoveredCellCol)->state == endPoint
+				         && boardGet(board, hoveredCellRow, hoveredCellCol)->color == selectedColor)
 				{
+					printf("We hit the end of the pipe\n");
 					piping = false;
-					for (size_t r = 0; r < gb->rows; r++)
-					{
-						for (size_t c = 0; c < gb->cols; c++)
-						{
-							if (*gameBoardCell(&pipeBoard, r, c) == selectedColor)
-							{
-								*gameBoardCell(gb, r, c) = selectedColor;
-								*gameBoardCell(&pipeBoard, r, c) = COLOR_EMPTY;
-							}
-						}
-					}
-					Mix_PlayChannel(-1, yuhSound, 0);
-					const char *error = Mix_GetError();
-					printf("Error: %s\n", error);
+					Mix_PlayChannel(-1, sounds[CHUNK_YUH], 0);
 				}
 			}
 		}
-
+		else
+		{
+			isCellHovered = false;
+		}
+		
 		while (SDL_PollEvent(&event))
 		{
-			if (event.type == SDL_QUIT)
+			switch (event.type)
 			{
-				running = false;
-			}
-			if (event.type == SDL_MOUSEBUTTONDOWN)
-			{
-				if (!piping && isCellHovered)
-				{
-					selectedColor = *gameBoardCell(gb, hoveredCellRow, hoveredCellCol);
-					if (selectedColor != COLOR_EMPTY)
+				case SDL_QUIT:
+					gameRunning = false;
+					break;
+				case SDL_MOUSEBUTTONDOWN:
+					if (!piping && isCellHovered)
 					{
-						piping = true;
-						lastPipeRow = hoveredCellRow;
-						lastPipeCol = hoveredCellCol;
-						startPipeRow = hoveredCellRow;
-						startPipeCol = hoveredCellCol;
-					}
-				}
-			}
-			if (event.type == SDL_MOUSEBUTTONUP)
-			{
-				// if we are still piping, then we haven't found the end of the pipe, so undo
-				// this color
-				if (piping)
-				{
-					// this should be a function for GameBoard
-					for (int r = 0; r < gb->rows; r++)
-					{
-						for (int c = 0; c < gb->cols; c++)
+						CellState hoveredState =
+							boardGet(board, hoveredCellRow, hoveredCellCol)->state;
+						if (hoveredState==CELLSTATE_PIPE_START || hoveredState==CELLSTATE_PIPE_END)
 						{
-							if (*gameBoardCell(&pipeBoard, r, c) == selectedColor)
+							piping = true;
+							selectedColor = boardGet(board, hoveredCellRow, hoveredCellCol)->color;
+							lastPipeRow = hoveredCellRow;
+							lastPipeCol = hoveredCellCol;
+							startPipeRow = hoveredCellRow;
+							startPipeCol = hoveredCellCol;
+							if (hoveredState == CELLSTATE_PIPE_START)
 							{
-								*gameBoardCell(&pipeBoard, r, c) = COLOR_EMPTY;
+								endPoint = CELLSTATE_PIPE_END;
+							}
+							else
+							{
+								endPoint = CELLSTATE_PIPE_START;
 							}
 						}
+							
 					}
-					piping = false;	
-				}
+					break;
+				case SDL_MOUSEBUTTONUP:
+					// if we are still piping, we haven't completed it yet, completely undo for now
+					if (piping)
+					{
+						for (i32 r = 0; r < board->height; r++)	
+						{
+							for (i32 c = 0; c < board->width; c++)
+							{
+								if (boardGet(board, r, c)->state != CELLSTATE_PIPE_START
+									&& boardGet(board, r, c)->state != CELLSTATE_PIPE_END
+									&& boardGet(board, r, c)->color == selectedColor)
+								{
+									boardSetState(board, r, c, CELLSTATE_EMPTY);
+								}
+							}
+						}
+						piping = false;
+					}
+					break;
 			}
 		}
 
+		// drawing
+		// clear screen with gray
 		SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
 		SDL_RenderClear(renderer);
+
+		// draw the background
 		SDL_SetRenderDrawColor(renderer, 25, 25, 25, 255);
-		SDL_Rect pipeBackgroundRect = {boardX, boardY, boardWidth, boardHeight};
-		SDL_RenderFillRect(renderer, &pipeBackgroundRect);
+		SDL_Rect boardBackground = {boardX, boardY, boardWidth, boardHeight};
+		SDL_RenderFillRect(renderer, &boardBackground);
 
-		// loop for the start / end pipes
-		for (int r = 0; r < gb->rows; r++)
+		// draw cell stuff
+		for (i32 r = 0; r < board->height; r++)
 		{
-			for (int c = 0; c < gb->cols; c++)
+			for (i32 c = 0; c < board->width; c++)
 			{
-				int red, green, blue;
-				getPipeColorRgb(*gameBoardCell(gb, r, c), &red, &green, &blue);
+				// the cell background
+				SDL_Rect cellBg = {
+					boardX + (c * cellWidth) + (0.1 * cellWidth),
+					boardY + (r * cellHeight) + (0.1 * cellHeight),
+					cellWidth - (0.2 * cellWidth),
+					cellHeight - (0.2 * cellHeight)
+				};
+				SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+				SDL_RenderFillRect(renderer, &cellBg);
 
-				if (isCellHovered && r == hoveredCellRow && c == hoveredCellCol)
+				i32 red, green, blue;
+				switch (boardGet(board, r, c)->color)
 				{
-					// make cell brighter by averaging it with 255
-					red = (red + 255) / 2;
-					green = (green + 255) / 2;
-					blue = (blue + 255) / 2;
+					case CELLCOLOR_COUNT:
+					case CELLCOLOR_RED:
+						red=255; green=0; blue=0; break;
+					case CELLCOLOR_GREEN:
+						red=0; green=255; blue=0; break;
+					case CELLCOLOR_BLUE:
+						red=0; green=0; blue=255; break;
+					case CELLCOLOR_YELLOW:
+						red=255; green=255; blue=0; break;
+					case CELLCOLOR_PURPLE:
+						red=255; green=0; blue=255; break;
+					case CELLCOLOR_CYAN:
+						red=0; green=255; blue=255; break;
+					case CELLCOLOR_WHITE:
+						red=255; green=255; blue=255; break;
+					case CELLCOLOR_MAGENTA:
+						red=255; green=0; blue=255; break;
+					case CELLCOLOR_PINK:
+						red=255; green=192; blue=203; break;
 				}
 
-				SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
 
-				SDL_Rect destination = {
-					c * cellSize + boardX + 7, 
-					r * cellSize + boardY + 7, 
-					cellSize-10, 
-					cellSize-10
-				};
-				SDL_RenderFillRect(renderer, &destination);
-			}
-		}
-
-		// loop for the pipes
-		for (int r = 0; r < pipeBoard.rows; r++)
-		{
-			for(int c = 0; c < pipeBoard.cols; c++)
-			{
-				if (*gameBoardCell(&pipeBoard, r, c) == COLOR_EMPTY)
-				{
-					continue;
+				// the cell
+				switch (boardGet(board, r, c)->state)
+				{	
+					// here are all the different cell states
+					default:
+					case CELLSTATE_EMPTY:
+					case CELLSTATE_EMPTY_MARKED:
+						break;
+					case CELLSTATE_PIPE_START:
+					case CELLSTATE_PIPE_END:
+					{
+						SDL_Rect cellFg = {
+							cellBg.x + (0.1 * cellBg.w),
+							cellBg.y + (0.1 * cellBg.h),
+							cellBg.w - (0.2 * cellBg.w),
+							cellBg.h - (0.2 * cellBg.h)
+						};
+						SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
+						SDL_RenderFillRect(renderer, &cellFg);
+					}
+					break;
+					case CELLSTATE_PIPE_H:
+					{
+						SDL_Rect cellFg = {
+							cellBg.x + (0.1 * cellBg.w),
+							cellBg.y + (0.4 * cellBg.h),
+							cellBg.w - (0.2 * cellBg.w),
+							cellBg.h - (0.8 * cellBg.h)
+						};
+						SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
+						SDL_RenderFillRect(renderer, &cellFg);
+					}
+					break;
 				}
-				int red, green, blue;
-				getPipeColorRgb(*gameBoardCell(&pipeBoard, r, c), &red, &green, &blue);
-
-				SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
-
-				// we will draw the pipes smaller than the cells for now,
-				// later on they will be actual connected pipes
-				SDL_Rect destination = {
-					c * cellSize + boardX + 20, 
-					r * cellSize + boardY + 20, 
-					cellSize-40, 
-					cellSize-40
-				};
-
-				SDL_RenderFillRect(renderer, &destination);
 			}
 		}
 
 		SDL_RenderPresent(renderer);
-
-		if (!hasEmptyCellGameBoard(gb))
-		{
-			printf("You win!\n");
-			running = false;
-		}
-		
 	}
-
-	freeGameBoard(&pipeBoard);
-	Mix_FreeChunk(placePipeSound);
-	Mix_FreeChunk(yuhSound);
-	SDL_DestroyRenderer(renderer);
-	SDL_DestroyWindow(window);
-	quitSDL();
+	boardFree(board);
 }
+
 
 int main(int argc, char *argv[])
 {
-	#define PIPECOUNT 8
-	srand(time(NULL));
+	SDL_Window *window = NULL;
+	SDL_Renderer *renderer = NULL;
+	Mix_Chunk *sounds[2];
+	Mix_Chunk *placePipeSound = Mix_LoadWAV("assets/Audio/click_001.wav");
+	Mix_Chunk *yuhSound = Mix_LoadWAV("assets/Audio/YUH.wav");
 
-	if (startSDL())
+	if (!startSDL() 
+	    || !(window = SDL_CreateWindow("flow", 1920, 0, 1280, 1280, SDL_WINDOW_SHOWN))
+	    || !(renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED))
+	    || !(sounds[CHUNK_CLICK_001] = Mix_LoadWAV("assets/Audio/click_001.wav"))
+	    || !(sounds[CHUNK_YUH] = Mix_LoadWAV("assets/Audio/YUH.wav")))
 	{
-		// play the game 5 times
-		for (int game = 0; game < 5; game++)
-		{
-			GameBoard board;
-			initGameBoard(&board, PIPECOUNT, PIPECOUNT);
-
-			PipePlan plans[PIPECOUNT];
-			size_t startRows[PIPECOUNT];
-			size_t startCols[PIPECOUNT];
-			size_t endRows[PIPECOUNT];
-			size_t endCols[PIPECOUNT];
-			for (int p = 0; p < PIPECOUNT; p++)
-			{
-				plans[p].size = PIPECOUNT;
-				plans[p].color = p + 1;
-			}
-
-			for (int p = 0; p < PIPECOUNT; p++)
-			{
-				//printf("Placing pipe %i\n", p);
-				size_t sr, sc, er, ec = -1;
-				bool success = placePipeGameBoard(&board, plans[p], &startRows[p], &startCols[p], &endRows[p], &endCols[p]);
-				if (!success)
-				{
-					printf("Failed to place pipe %i\n", p);
-					printf("Clearing board... and trying again\n");
-					zeroGameBoard(&board);
-					p = -1;
-				}
-			}
-			printf("Board is Completed! Here is the completed board:\n");
-			printGameBoard(&board);
-			
-			zeroGameBoard(&board);
-			for (int p = 0; p < PIPECOUNT; p++)
-			{
-				*gameBoardCell(&board, startRows[p], startCols[p]) = plans[p].color;
-				*gameBoardCell(&board, endRows[p], endCols[p]) = plans[p].color;
-			}
-			printf("And here is the board with just the endpoints:\n");
-			printGameBoard(&board);
-			playGame(&board);
-			freeGameBoard(&board);
-
-		}
+		fprintf(stderr, "Error initializing\n");
+		goto cleanup;
 	}
+
+	playFlow(window, renderer, sounds);
+
+
+cleanup:
+	SDL_DestroyRenderer(renderer);
+	SDL_DestroyWindow(window);
+	Mix_FreeChunk(sounds[CHUNK_YUH]);
+	Mix_FreeChunk(sounds[CHUNK_CLICK_001]);
 	quitSDL();
 	return 0;
 }
