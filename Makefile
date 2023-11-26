@@ -1,6 +1,6 @@
 CXX      := gcc
 LD       := gcc
-CXXFLAGS := -std=c17 -Wall -Wextra -Wpedantic -g
+CXXFLAGS := -std=c17 -Wall -Wextra -Wpedantic -O2 -g
 LDFLAGS  := -lSDL2_ttf -lSDL2_mixer -lSDL2_image -lSDL2
 TARGET   := $(shell basename $(CURDIR))
 CPPFILES := $(wildcard src/*.c) $(wildcard src/*/*.c)

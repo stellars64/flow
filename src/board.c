@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <time.h>
+#include <SDL2/SDL.h>
 
 #include "board.h"
 
@@ -21,6 +22,7 @@ Board* boardCreate(i32 width, i32 height)
 		board->cells[i].state = CELLSTATE_EMPTY;
 		board->cells[i].color = CELLCOLOR_RED;
 	}
+	board->isGenerated = false;
 	return board;
 }
 
@@ -66,11 +68,6 @@ void boardSetStateAll(Board *board, CellState state)
 
 Cell* boardGet(Board *board, i32 r, i32 c)
 {
-	// if out of bounds, return NULL
-	if (r < 0 || r >= board->height || c < 0 || c >= board->width)
-	{
-		return NULL;
-	}
 	return &board->cells[r * board->width + c];
 }
 
@@ -101,6 +98,7 @@ void boardPrint(Board *board)
 	}
 }
 
+
 void boardDfsFillState(Board *board, i32 row, i32 col, CellState oldState, CellState newState)
 {
 	// if out of bounds, return
@@ -109,9 +107,10 @@ void boardDfsFillState(Board *board, i32 row, i32 col, CellState oldState, CellS
 		return;
 	}
 
-	if (boardGet(board, row, col)->state == oldState)
+	i32 bi = row * board->width + col;
+	if (board->cells[bi].state == oldState)
 	{
-		boardGet(board, row, col)->state = newState;
+		board->cells[bi].state = newState;
 		boardDfsFillState(board, row - 1, col, oldState, newState);
 		boardDfsFillState(board, row + 1, col, oldState, newState);
 		boardDfsFillState(board, row, col - 1, oldState, newState);
@@ -119,30 +118,31 @@ void boardDfsFillState(Board *board, i32 row, i32 col, CellState oldState, CellS
 	}
 }
 
+
 bool boardIsEmptyConnected(Board *board, i32 row, i32 col)
 {
 	CellState prevState = boardGet(board, row, col)->state;
 
 	// place temp pipe
-	boardGet(board, row, col)->state = CELLSTATE_PIPE_START;
+	board->cells[row * board->width + col].state = CELLSTATE_PIPE_START;
 
-	// get an empty cell
-	i32 emptyRow = 0;
-	i32 emptyCol = 0;
+	// find empty cell
+	i32 emptyIndex = 0;
 	bool emptyFound = false;
-	for (i32 r = 0; r < board->height; r++)
+
+	i32 size = board->width * board->height;
+	for (i32 i = 0; i < size; i++)
 	{
-		for (i32 c = 0; c < board->width; c++)
+		if (board->cells[i].state == CELLSTATE_EMPTY)
 		{
-			if (boardGet(board, r, c)->state == CELLSTATE_EMPTY)
-			{
-				emptyRow = r;
-				emptyCol = c;
-				emptyFound = true;
-				break;
-			}
+			emptyIndex = i;
+			emptyFound = true;
+			break;
 		}
 	}
+
+	i32 emptyRow = emptyIndex / board->width;
+	i32 emptyCol = emptyIndex % board->width;
 
 	// trivially true
 	if (!emptyFound)
@@ -156,23 +156,20 @@ bool boardIsEmptyConnected(Board *board, i32 row, i32 col)
 
 	// check if any non-marked empty cells exist, and while we are at it unmark the marked cells
 	bool allEmptyVisited = true;
-	for (i32 r = 0; r < board->height; r++)
+	for (i32 i = 0; i < size; i++)
 	{
-		for (i32 c = 0; c < board->width; c++)
+		if (board->cells[i].state == CELLSTATE_EMPTY)
 		{
-			if (boardGet(board, r, c)->state == CELLSTATE_EMPTY)
-			{
-				allEmptyVisited = false;
-			}
-			else if (boardGet(board, r, c)->state == CELLSTATE_EMPTY_MARKED)
-			{
-				boardGet(board, r, c)->state = CELLSTATE_EMPTY;
-			}
+			allEmptyVisited = false;
+		}
+		else if (board->cells[i].state == CELLSTATE_EMPTY_MARKED)
+		{
+			board->cells[i].state = CELLSTATE_EMPTY;
 		}
 	}
 
 	// reset temp pipe
-	boardGet(board, row, col)->state = prevState;
+	board->cells[row * board->width + col].state = prevState;
 
 	return allEmptyVisited;
 }
@@ -283,7 +280,7 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 curr
 		// attempt to place the pipe
 		boardGet(board, adjRow, adjCol)->state = pipeState;
 		boardGet(board, adjRow, adjCol)->color = currentPipe;
-		
+
 		// if we are finished with the current pipe
 		if (currentSize == pipes[currentPipe])
 		{
@@ -397,7 +394,7 @@ bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe)
 			{
 				rejected[startIndex] = true;
 				nonRejectedEmpty -= 1;
-				
+
 				if (nonRejectedEmpty == 0)
 				{
 					free(rejected);
@@ -429,10 +426,14 @@ bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe)
 	return false;
 }
 
-
-bool boardGenerate(Board *board, i32 numPipes)
+bool boardGenerate(Board *board)
 {
-	srand(time(NULL));
+	printf("Generating board...\n");
+	u64 startTime = SDL_GetPerformanceCounter();
+
+	i32 numPipes = board->width;
+
+	board->isGenerated = false;
 
 	if (numPipes >= CELLCOLOR_COUNT)
 	{
@@ -441,7 +442,7 @@ bool boardGenerate(Board *board, i32 numPipes)
 
 	i32 size = board->width * board->height;
 	i32 *pipes = malloc(sizeof(i32) * numPipes);
-	
+
 	for (i32 i = 0; i < numPipes; i++)
 	{
 		pipes[i] = 3; // 3 is the absolute minimum length
@@ -467,6 +468,10 @@ bool boardGenerate(Board *board, i32 numPipes)
 	}
 
 	free(pipes);
+	board->isGenerated = true;
+	printf("Generated!\n");
+	u64 endTime = SDL_GetPerformanceCounter();
+	printf("Time taken: %f\n", (endTime - startTime) / (f64)SDL_GetPerformanceFrequency());
 	return placed;
 }
 

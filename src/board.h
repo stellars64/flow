@@ -21,6 +21,9 @@ typedef enum
 	CELLCOLOR_PURPLE,
 	CELLCOLOR_CYAN,
 	CELLCOLOR_WHITE,
+	CELLCOLOR_LIGHT_GRAY,
+	CELLCOLOR_MEDIUM_GRAY,
+	CELLCOLOR_DARK_GRAY,
 	CELLCOLOR_MAGENTA,
 	CELLCOLOR_PINK,
 	CELLCOLOR_DARK_RED,
@@ -55,6 +58,7 @@ typedef struct
 	Cell *cells;
 	i32 width;
 	i32 height;
+	bool isGenerated;
 } Board;
 
 typedef struct
@@ -81,6 +85,7 @@ Cell* boardGetI(Board *board, i32 index);
 //
 void boardPrint(Board *board);
 //
-bool boardGenerate(Board *board, i32 numColors);
+//bool boardGenerate(Board *board, i32 numColors);
+bool boardGenerate(Board *board);
 
 #endif
