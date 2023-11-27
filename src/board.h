@@ -29,6 +29,13 @@ typedef enum
 	CELLCOLOR_DARK_RED,
 	CELLCOLOR_DARK_GREEN,
 	CELLCOLOR_DARK_BLUE,
+	CELLCOLOR_ULTRADARK_RED,
+	CELLCOLOR_ULTRADARK_GREEN,
+	CELLCOLOR_ULTRADARK_BLUE,
+	CELLCOLOR_ULTRADARK_YELLOW,
+	CELLCOLOR_ULTRADARK_PURPLE,
+	CELLCOLOR_ULTRADARK_CYAN,
+	CELLCOLOR_FUCHSIA,
 	CELLCOLOR_COUNT
 } CellColor;
 
@@ -85,7 +92,6 @@ Cell* boardGetI(Board *board, i32 index);
 //
 void boardPrint(Board *board);
 //
-//bool boardGenerate(Board *board, i32 numColors);
 bool boardGenerate(Board *board);
 
 #endif

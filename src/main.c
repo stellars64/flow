@@ -135,6 +135,20 @@ void drawCell(SDL_Renderer *renderer, SDL_Rect *cellBg, Cell *cell)
 			red=0; green=100; blue=0; break;
 		case CELLCOLOR_DARK_BLUE:
 			red=0; green=0; blue=139; break;
+		case CELLCOLOR_ULTRADARK_RED:
+			red=50; green=0; blue=0; break;
+		case CELLCOLOR_ULTRADARK_GREEN:
+			red=0; green=50; blue=0; break;
+		case CELLCOLOR_ULTRADARK_BLUE:
+			red=0; green=0; blue=50; break;
+		case CELLCOLOR_ULTRADARK_YELLOW:
+			red=50; green=50; blue=0; break;
+		case CELLCOLOR_ULTRADARK_PURPLE:
+			red=50; green=0; blue=50; break;
+		case CELLCOLOR_ULTRADARK_CYAN:
+			red=0; green=50; blue=50; break;
+		case CELLCOLOR_FUCHSIA:
+			red=255; green=0; blue=255; break;
 	}
 
 	switch (cell->state)
