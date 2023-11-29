@@ -22,14 +22,21 @@ Board* boardCreate(i32 width, i32 height)
 	{
 		board->cells[i].state = CELLSTATE_EMPTY;
 		board->cells[i].color = CELLCOLOR_RED;
+		board->cells[i].connection = CELLCONNECTION_NONE;
 	}
 	board->isGenerated = false;
+	board->queue = malloc(sizeof(Vec2i) * size);
+	board->wasQueued = malloc(sizeof(bool) * size);
+	board->mhDistance = malloc(sizeof(i32) * size);
 	return board;
 }
 
 
 void boardFree(Board *board)
 {
+	free(board->mhDistance);
+	free(board->wasQueued);
+	free(board->queue);
 	free(board->cells);
 	free(board);
 }
@@ -41,29 +48,9 @@ void boardSetColor(Board *board, i32 r, i32 c, CellColor color)
 }
 
 
-void boardSetColorAll(Board *board, CellColor color)
-{
-	i32 size = board->width * board->height;
-	for (i32 i = 0; i < size; i++)
-	{
-		board->cells[i].color = color;
-	}
-}
-
-
 void boardSetState(Board *board, i32 r, i32 c, CellState state)
 {
 	boardGet(board, r, c)->state = state;
-}
-
-
-void boardSetStateAll(Board *board, CellState state)
-{
-	i32 size = board->width * board->height;
-	for (i32 i = 0; i < size; i++)
-	{
-		board->cells[i].state = state;
-	}
 }
 
 
@@ -76,6 +63,11 @@ Cell* boardGet(Board *board, i32 r, i32 c)
 Cell* boardGetI(Board *board, i32 index)
 {
 	return &board->cells[index];
+}
+
+bool boardBoundsCheck(Board *board, i32 r, i32 c)
+{
+	return r >= 0 && r < board->height && c >= 0 && c < board->width;
 }
 
 
@@ -119,7 +111,6 @@ void boardDfsFillState(Board *board, i32 row, i32 col, CellState oldState, CellS
 	}
 }
 
-
 bool boardIsEmptyConnected(Board *board, i32 row, i32 col)
 {
 	CellState prevState = boardGet(board, row, col)->state;
@@ -142,15 +133,15 @@ bool boardIsEmptyConnected(Board *board, i32 row, i32 col)
 		}
 	}
 
-	i32 emptyRow = emptyIndex / board->width;
-	i32 emptyCol = emptyIndex % board->width;
-
 	// trivially true
 	if (!emptyFound)
 	{
 		boardGet(board, row, col)->state = prevState;
 		return true;
 	}
+
+	i32 emptyRow = emptyIndex / board->width;
+	i32 emptyCol = emptyIndex % board->width;
 
 	// recursively fill the empty cells with CELLSTATE_EMPTY_MARKED
 	boardDfsFillState(board, emptyRow, emptyCol, CELLSTATE_EMPTY, CELLSTATE_EMPTY_MARKED);
@@ -173,140 +164,6 @@ bool boardIsEmptyConnected(Board *board, i32 row, i32 col)
 	board->cells[row * board->width + col].state = prevState;
 
 	return allEmptyVisited;
-}
-
-// We need to check if the board is cursed. Whether or not it is cursed depends on the length
-// of the shortest pipe, and the configuration of the empty cells on the board.
-//
-// For example, if the shortest pipe length is >= 4, then the board is cursed if there is a
-// 2x2 square of empty cells, and only one empty cell is connected to other empty cells.
-/*
-    Cursed
-	-----------------
-	|   |   |PPP|...|
-	-----------------
-	|   |   |PPP|...|
-	-----------------
-	|PPP|   |PPP|...|
-	-----------------
-	|...|...|...|...|
-	-----------------
-	Also Cursed
-	-----------------
-	|   |   |PPP|...|
-	-----------------
-	|   |   |   |...|
-	-----------------
-	|PPP|   |PPP|...|
-	-----------------
-	|...|...|...|...|
-	-----------------
-*/
-bool boardIsCursed(Board *board, i32 row, i32 col, i32 shortestPipeLength)
-{
-	CellState prevState = boardGet(board, row, col)->state;
-
-	// place temp pipe
-	boardGet(board, row, col)->state = CELLSTATE_PIPE_START;
-
-	// Check for PipeLength >= 4 curse
-	//
-	// iterate through board cells, except last row / column to make room for 2x2
-	bool cursed = false;
-	for (i32 r=0; (r<board->height-1) && !cursed; r++)
-	{
-		for (i32 c=0; (c<board->width-1) && !cursed; c++)
-		{
-			i32 bi = r * board->width + c;
-			if (board->cells[bi].state == CELLSTATE_EMPTY)
-			{
-				// check (r+1, c), (r, c+1), (r+1, c+1)
-				if (   board->cells[bi + board->width    ].state == CELLSTATE_EMPTY
-				    && board->cells[bi + 1               ].state == CELLSTATE_EMPTY
-				    && board->cells[bi + board->width + 1].state == CELLSTATE_EMPTY)
-				{
-					i32 count = 0;
-
-					// TODO: Obviously this code needs to be condensed & refactored
-					// I just want to check that this will speed up our generate times
-
-					// check top-left
-					i32 cr = r;
-					i32 cc = c;
-					// -- check left adj
-					if (cc - 1 >= 0
-					    && board->cells[cr*board->width + cc - 1].state == CELLSTATE_EMPTY)
-					{
-						count++;
-					}
-					// -- check top adj
-					else if (cr - 1 >= 0
-					         && board->cells[(cr-1)*board->width + cc].state == CELLSTATE_EMPTY)
-					{
-						count++;
-					}
-
-					// check top-right
-					cr = r;
-					cc = c + 1;
-					// -- check right adj
-					if (cc + 1 < board->width
-					    && board->cells[cr*board->width + cc + 1].state == CELLSTATE_EMPTY)
-					{
-						count++;
-					}
-					// -- check top adj
-					else if (cr - 1 >= 0
-					         && board->cells[(cr-1)*board->width + cc].state == CELLSTATE_EMPTY)
-					{
-						count++;
-					}
-
-					// check bottom-left
-					cr = r + 1;
-					cc = c;
-					// -- check left adj
-					if (cc - 1 >= 0
-					    && board->cells[cr*board->width + cc - 1].state == CELLSTATE_EMPTY)
-					{
-						count++;
-					}
-					// -- check bottom adj
-					else if (cr + 1 < board->height
-					         && board->cells[(cr+1)*board->width + cc].state == CELLSTATE_EMPTY)
-					{
-						count++;
-					}
-
-					// check bottom-right
-					cr = r + 1;
-					cc = c + 1;
-					// -- check right adj
-					if (cc + 1 < board->width
-					    && board->cells[cr*board->width + cc + 1].state == CELLSTATE_EMPTY)
-					{
-						count++;
-					}
-					// -- check bottom adj
-					else if (cr + 1 < board->height
-					         && board->cells[(cr+1)*board->width + cc].state == CELLSTATE_EMPTY)
-					{
-						count++;
-					}
-
-					// The board is cursed!!!
-					if (count < 2)
-					{
-						cursed = true;
-					}
-				}
-			}
-		}
-	}
-
-	// remove temp pipe
-	boardGet(board, row, col)->state = prevState;
-	return cursed;
 }
 
 i32 boardAdjacentWithColor(Board *board, i32 row, i32 col, CellColor color)
@@ -338,7 +195,9 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 	// order: U,D,L,R
 	bool rejected[4] = {true, true, true, true};
 	i32 numRejected = 4;
-	Vec2i dirs[4] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+					//r, c
+					// UP     DOWN     LEFT     RIGHT
+	Vec2i dirs[4] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
 
 	for (i32 d = 0; d < 4; d += 1)
 	{
@@ -348,8 +207,7 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 		if (adjRow >= 0 && adjRow < board->height && adjCol >= 0 && adjCol < board->width
 			&& boardGet(board, adjRow, adjCol)->state == CELLSTATE_EMPTY
 			&& boardAdjacentWithColor(board, adjRow, adjCol, currentPipe) < 2
-			&& boardIsEmptyConnected(board, adjRow, adjCol)
-		    && !boardIsCursed(board, adjRow, adjCol, shortestPipeLength))
+			&& boardIsEmptyConnected(board, adjRow, adjCol))
 		{
 			rejected[d] = false;
 			numRejected -= 1;
@@ -523,8 +381,7 @@ bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 sho
 			}
 
 			// Check to see if emptyConnected, if so then index is a good start
-			if (boardIsEmptyConnected(board, startRow, startCol)
-				&& !boardIsCursed(board, startRow, startCol, shortestPipeLength))
+			if (boardIsEmptyConnected(board, startRow, startCol))
 			{
 				break;
 			}
@@ -623,7 +480,6 @@ bool boardGenerate(Board *board)
 	printf("Time taken: %f\n", (endTime - startTime) / (f64)SDL_GetPerformanceFrequency());
 	return placed;
 }
-
 
 
 

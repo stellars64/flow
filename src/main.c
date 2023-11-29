@@ -5,20 +5,68 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_mixer.h>
-
 #include "board.h"
 
-#define CHUNK_CLICK_001 0
-#define CHUNK_YUH 1
+const SDL_Color colorMap[CELLCOLOR_COUNT] = {
+	{255,   0,   0}, // CELLCOLOR_RED
+	{  0, 255,   0}, // CELLCOLOR_GREEN
+	{  0,   0, 255}, // CELLCOLOR_BLUE
+	{255, 255,   0}, // CELLCOLOR_YELLOW
+	{125,   0, 255}, // CELLCOLOR_PURPLE
+	{  0, 255, 255}, // CELLCOLOR_CYAN
+	{255, 255, 255}, // CELLCOLOR_WHITE
+	{211, 211, 211}, // CELLCOLOR_LIGHT_GRAY
+	{128, 128, 128}, // CELLCOLOR_MEDIUM_GRAY
+	{169, 169, 169}, // CELLCOLOR_DARK_GRAY
+	{255,   0, 255}, // CELLCOLOR_MAGENTA
+	{255, 192, 203}, // CELLCOLOR_PINK
+	{139,   0,   0}, // CELLCOLOR_DARK_RED
+	{  0, 100,   0}, // CELLCOLOR_DARK_GREEN
+	{  0,   0, 139}, // CELLCOLOR_DARK_BLUE
+	{ 50,   0,   0}, // CELLCOLOR_ULTRADARK_RED
+	{  0,  50,   0}, // CELLCOLOR_ULTRADARK_GREEN
+	{  0,   0,  50}, // CELLCOLOR_ULTRADARK_BLUE
+	{ 50,  50,   0}, // CELLCOLOR_ULTRADARK_YELLOW
+	{ 50,   0,  50}, // CELLCOLOR_ULTRADARK_PURPLE
+	{  0,  50,  50}, // CELLCOLOR_ULTRADARK_CYAN
+	{255,   0, 255}  // CELLCOLOR_FUCHSIA
+};
+
+typedef struct Game
+{
+	SDL_Window *window;
+	SDL_Renderer *renderer;
+	Mix_Chunk *clickSound;
+	Mix_Chunk *yuhSound;
+	Board *board;
+	bool gameRunning;
+	SDL_Point mouse;
+	bool isHovered;
+	SDL_Point hoveredCell;
+	bool piping;
+	SDL_Point *pipeSeq;
+	i32 pipeSeqSize;
+	CellState endPoint;
+	CellColor selectedColor;
+	SDL_Rect boardDim;
+	i32 cellWidth;
+	i32 cellHeight;
+} Game;
 
 bool startSDL();
 void quitSDL();
-bool inBounds(i32 x, i32 y, SDL_Rect rect);
-bool pointsEqual(SDL_Point a, SDL_Point b);
-bool pointsAdjacent(SDL_Point a, SDL_Point b);
-void drawPipeSection(SDL_Renderer *renderer, SDL_Rect *cellBg, Direction dir, i32 r, i32 g, i32 b);
-void drawCell(SDL_Renderer *renderer, SDL_Rect *cellBg, Cell *cell);
-void playFlow(SDL_Window *window, SDL_Renderer *renderer, Mix_Chunk *sounds[], i32 boardSize);
+bool inBounds(i32, i32, SDL_Rect);
+bool pointsEqual(SDL_Point, SDL_Point);
+bool pointsAdjacent(SDL_Point, SDL_Point);
+void drawPipeEnd(SDL_Renderer*, SDL_Rect*, SDL_Color);
+void drawPipeSection(SDL_Renderer*, SDL_Rect*, CellConnection, SDL_Color);
+void drawPipe(SDL_Renderer*, SDL_Rect*, Cell*);
+void setCellConnection(Board*, SDL_Point, SDL_Point);
+void handleInput(Game *g);
+void drawGame(Game *g);
+void playFlow(Game *g, i32 boardSize);
+void game(i32, char*[]);
+void testgen();
 
 bool startSDL()
 {
@@ -64,519 +112,339 @@ bool pointsAdjacent(SDL_Point a, SDL_Point b)
 	return (xDiff + yDiff == 1) && (xDiff == 0 || yDiff == 0);
 }
 
-void drawPipeSection(SDL_Renderer *renderer, SDL_Rect *cellBg, Direction dir, i32 r, i32 g, i32 b)
+void drawPipeEnd(SDL_Renderer *renderer, SDL_Rect *cellDim, SDL_Color color)
+{
+	SDL_Rect circle = {
+		cellDim->x + (0.2 * cellDim->w),
+		cellDim->y + (0.2 * cellDim->h),
+		cellDim->w - (0.4 * cellDim->w),
+		cellDim->h - (0.4 * cellDim->h)
+	};
+	SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 255);
+	SDL_RenderFillRect(renderer, &circle);
+}
+
+void drawPipeSection(SDL_Renderer *renderer, SDL_Rect *cellDim, CellConnection connection,
+                     SDL_Color color)
 {
 	SDL_Rect dest;
-	switch (dir)
+	switch (connection)
 	{
+		case CELLCONNECTION_UP:
+			dest.x = cellDim->x + (cellDim->w / 2);
+			dest.y = cellDim->y - (cellDim->h / 2);
+			dest.h = cellDim->h;
+			dest.w = cellDim->w / 10;
+			break;
+		case CELLCONNECTION_DOWN:
+			dest.x = cellDim->x + (cellDim->w / 2);
+			dest.y = cellDim->y + (cellDim->h / 2);
+			dest.h = cellDim->h;
+			dest.w = cellDim->w / 10;
+			break;
+		case CELLCONNECTION_LEFT:
+			dest.x = cellDim->x - (cellDim->w / 2);
+			dest.y = cellDim->y + (cellDim->h / 2);
+			dest.h = cellDim->h / 10;
+			dest.w = cellDim->w;
+			break;
+		case CELLCONNECTION_RIGHT:
+			dest.x = cellDim->x + (cellDim->w / 2);
+			dest.y = cellDim->y + (cellDim->h / 2);
+			dest.h = cellDim->h / 10;
+			dest.w = cellDim->w;
+			break;
 		default:
-		case DIRECTION_UP:
-			dest.x = cellBg->x + (cellBg->w / 2);
-			dest.y = cellBg->y;
-			dest.h = cellBg->h / 2;
-			dest.w = cellBg->w / 10;
-			break;
-		case DIRECTION_DOWN:
-			dest.x = cellBg->x + (cellBg->w / 2);
-			dest.y = cellBg->y + (cellBg->h / 2);
-			dest.h = cellBg->h / 2;
-			dest.w = cellBg->w / 10;
-			break;
-		case DIRECTION_LEFT:
-			dest.x = cellBg->x;
-			dest.y = cellBg->y + (cellBg->h / 2);
-			dest.h = cellBg->h / 10;
-			dest.w = cellBg->w / 2;
-			break;
-		case DIRECTION_RIGHT:
-			dest.x = cellBg->x + (cellBg->w / 2);
-			dest.y = cellBg->y + (cellBg->h / 2);
-			dest.h = cellBg->h / 10;
-			dest.w = cellBg->w / 2;
+		case CELLCONNECTION_NONE:
 			break;
 	}
-	SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+	SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 255);
 	SDL_RenderFillRect(renderer, &dest);
 }
 
-void drawCell(SDL_Renderer *renderer, SDL_Rect *cellBg, Cell *cell)
+void drawPipe(SDL_Renderer *renderer, SDL_Rect *cellDim, Cell *cell)
 {
-	i32 red, green, blue;
-	switch (cell->color)
+	SDL_Color color = colorMap[cell->color];
+
+	if (cell->state == CELLSTATE_PIPE_START || cell->state == CELLSTATE_PIPE_END)
+		drawPipeEnd(renderer, cellDim, color);
+
+	if (cell->connection != CELLCONNECTION_NONE)
+		drawPipeSection(renderer, cellDim, cell->connection, color);
+}
+
+void setCellConnection(Board *board, SDL_Point cell1, SDL_Point cell2)
+{
+	if (cell2.x > cell1.x)
+		boardGet(board, cell1.y, cell1.x)->connection = CELLCONNECTION_RIGHT;
+
+	else if (cell2.x < cell1.x)
+		boardGet(board, cell1.y, cell1.x)->connection = CELLCONNECTION_LEFT;
+
+	else if (cell2.y > cell1.y)
+		boardGet(board, cell1.y, cell1.x)->connection = CELLCONNECTION_DOWN;
+
+	else if (cell2.y < cell1.y)
+		boardGet(board, cell1.y, cell1.x)->connection = CELLCONNECTION_UP;
+}
+
+void handleInput(Game *g)
+{
+	if (!g->gameRunning)
+		return;
+
+	SDL_Point mouse;
+	SDL_GetMouseState(&mouse.x, &mouse.y);
+
+	if (inBounds(mouse.x, mouse.y, g->boardDim))
 	{
-		case CELLCOLOR_COUNT:
-		case CELLCOLOR_RED:
-			red=255; green=0; blue=0; break;
-		case CELLCOLOR_GREEN:
-			red=0; green=255; blue=0; break;
-		case CELLCOLOR_BLUE:
-			red=0; green=0; blue=255; break;
-		case CELLCOLOR_YELLOW:
-			red=255; green=255; blue=0; break;
-		case CELLCOLOR_PURPLE:
-			red=125; green=0; blue=255; break;
-		case CELLCOLOR_CYAN:
-			red=0; green=255; blue=255; break;
-		case CELLCOLOR_WHITE:
-			red=255; green=255; blue=255; break;
-		case CELLCOLOR_LIGHT_GRAY:
-			red=211; green=211; blue=211; break;
-		case CELLCOLOR_MEDIUM_GRAY:
-			red=128; green=128; blue=128; break;
-		case CELLCOLOR_DARK_GRAY:
-			red=169; green=169; blue=169; break;
-		case CELLCOLOR_MAGENTA:
-			red=255; green=0; blue=255; break;
-		case CELLCOLOR_PINK:
-			red=255; green=192; blue=203; break;
-		case CELLCOLOR_DARK_RED:
-			red=139; green=0; blue=0; break;
-		case CELLCOLOR_DARK_GREEN:
-			red=0; green=100; blue=0; break;
-		case CELLCOLOR_DARK_BLUE:
-			red=0; green=0; blue=139; break;
-		case CELLCOLOR_ULTRADARK_RED:
-			red=50; green=0; blue=0; break;
-		case CELLCOLOR_ULTRADARK_GREEN:
-			red=0; green=50; blue=0; break;
-		case CELLCOLOR_ULTRADARK_BLUE:
-			red=0; green=0; blue=50; break;
-		case CELLCOLOR_ULTRADARK_YELLOW:
-			red=50; green=50; blue=0; break;
-		case CELLCOLOR_ULTRADARK_PURPLE:
-			red=50; green=0; blue=50; break;
-		case CELLCOLOR_ULTRADARK_CYAN:
-			red=0; green=50; blue=50; break;
-		case CELLCOLOR_FUCHSIA:
-			red=255; green=0; blue=255; break;
+		g->isHovered = true;
+		g->hoveredCell.y = (mouse.y - g->boardDim.y) / g->cellHeight;
+		g->hoveredCell.x = (mouse.x - g->boardDim.x) / g->cellWidth;
+
+		if (g->piping && boardBoundsCheck(g->board, g->hoveredCell.y, g->hoveredCell.x)
+			&& pointsAdjacent(g->hoveredCell, g->pipeSeq[g->pipeSeqSize - 1]))
+		{
+			Cell* hovered = boardGet(g->board, g->hoveredCell.y, g->hoveredCell.x);
+
+			if (hovered->state == CELLSTATE_EMPTY
+				|| (hovered->state == g->endPoint && hovered->color == g->selectedColor))
+			{
+				g->pipeSeq[g->pipeSeqSize] = g->hoveredCell;
+				g->pipeSeqSize += 1;
+				if (g->pipeSeqSize > 1)
+				{
+					SDL_Point *prevPipe = &g->pipeSeq[g->pipeSeqSize - 2];
+					SDL_Point *currPipe = &g->pipeSeq[g->pipeSeqSize - 1];
+					setCellConnection(g->board, *prevPipe, *currPipe);
+				}
+
+				if (hovered->state == g->endPoint)
+				{
+					g->piping = false;
+					g->pipeSeqSize = 0;
+					Mix_PlayChannel(-1, g->yuhSound, 0);
+				}
+				else
+				{
+					hovered->color = g->selectedColor;
+					boardSetState(g->board, g->hoveredCell.y, g->hoveredCell.x, CELLSTATE_PIPE_H);
+					Mix_PlayChannel(-1, g->clickSound, 0);
+				}
+			}
+			else if (g->pipeSeqSize > 1)
+			{
+				SDL_Point *prevPipe = &g->pipeSeq[g->pipeSeqSize - 2];
+				SDL_Point *currPipe = &g->pipeSeq[g->pipeSeqSize - 1];
+				if (pointsEqual(g->hoveredCell, *prevPipe))
+				{
+					boardGet(g->board, (*currPipe).y, (*currPipe).x)->state = CELLSTATE_EMPTY;
+					(*currPipe) = (SDL_Point){0, 0};
+
+					boardGet(g->board, (*prevPipe).y, (*prevPipe).x)->connection = CELLCONNECTION_NONE;
+
+					g->pipeSeqSize -= 1;
+					Mix_PlayChannel(-1, g->clickSound, 0);
+				}
+			}
+		}
+	}
+	else
+	{
+		g->isHovered = false;
 	}
 
-	switch (cell->state)
+	SDL_Event event;
+	while (SDL_PollEvent(&event))
 	{
-		// here are all the different cell states
-		default:
-		case CELLSTATE_EMPTY:
-		case CELLSTATE_EMPTY_MARKED:
-			break;
-		case CELLSTATE_PIPE_START:
-		case CELLSTATE_PIPE_END:
+		switch (event.type)
 		{
-			SDL_Rect circle = {
-				cellBg->x + (0.1 * cellBg->w),
-				cellBg->y + (0.1 * cellBg->h),
-				cellBg->w - (0.2 * cellBg->w),
-				cellBg->h - (0.2 * cellBg->h)
-			};
-			SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
-			SDL_RenderFillRect(renderer, &circle);
+			case SDL_QUIT:
+				g->gameRunning = false;
+				break;
+			case SDL_MOUSEBUTTONDOWN:
+				if (!g->piping && g->isHovered)
+				{
+					Cell *hovered = boardGet(g->board, g->hoveredCell.y, g->hoveredCell.x);
+					if (hovered->state == CELLSTATE_PIPE_START
+						|| hovered->state == CELLSTATE_PIPE_END)
+					{
+						g->piping = true;
+						g->selectedColor = hovered->color;
+						g->pipeSeqSize = 1;
+						g->pipeSeq[0] = g->hoveredCell;
+						if (hovered->state == CELLSTATE_PIPE_START)
+						{
+							g->endPoint = CELLSTATE_PIPE_END;
+						}
+						else
+						{
+							g->endPoint = CELLSTATE_PIPE_START;
+						}
+					}
+				}
+				break;
+			case SDL_MOUSEBUTTONUP:
+				if (g->piping)
+				{
+					for (i32 r = 0; r < g->board->height; r++)
+					{
+						for (i32 c = 0; c < g->board->width; c++)
+						{
+							Cell* cell = boardGet(g->board, r, c);
+							if (cell->color == g->selectedColor)
+							{
+								if (cell->state != CELLSTATE_PIPE_START
+									&& cell->state != CELLSTATE_PIPE_END)
+								{
+									cell->state = CELLSTATE_EMPTY;
+								}
+								cell->connection = CELLCONNECTION_NONE;
+							}
+						}
+					}
+					g->piping = false;
+				}
+				break;
 		}
-		break;
-		case CELLSTATE_PIPE_H:
-		{
-			SDL_Rect hbar = {
-				cellBg->x + (0.1 * cellBg->w),
-				cellBg->y + (0.4 * cellBg->h),
-				cellBg->w - (0.2 * cellBg->w),
-				cellBg->h - (0.8 * cellBg->h)
-			};
-			SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
-			SDL_RenderFillRect(renderer, &hbar);
-		}
-		break;
-		case CELLSTATE_PIPE_V:
-		{
-			SDL_Rect vbar = {
-				cellBg->x + (0.4 * cellBg->w),
-				cellBg->y + (0.1 * cellBg->h),
-				cellBg->w - (0.8 * cellBg->w),
-				cellBg->h - (0.2 * cellBg->h)
-			};
-			SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
-			SDL_RenderFillRect(renderer, &vbar);
-		}
-		break;
-		case CELLSTATE_PIPE_LU:
-			drawPipeSection(renderer, cellBg, DIRECTION_LEFT, red, green, blue);
-			drawPipeSection(renderer, cellBg, DIRECTION_UP, red, green, blue);
-			break;
-		case CELLSTATE_PIPE_LD:
-			drawPipeSection(renderer, cellBg, DIRECTION_LEFT, red, green, blue);
-			drawPipeSection(renderer, cellBg, DIRECTION_DOWN, red, green, blue);
-		    break;
-		case CELLSTATE_PIPE_RU:
-			drawPipeSection(renderer, cellBg, DIRECTION_RIGHT, red, green, blue);
-			drawPipeSection(renderer, cellBg, DIRECTION_UP, red, green, blue);
-			break;
-		case CELLSTATE_PIPE_RD:
-			drawPipeSection(renderer, cellBg, DIRECTION_RIGHT, red, green, blue);
-			drawPipeSection(renderer, cellBg, DIRECTION_DOWN, red, green, blue);
-		    break;
 	}
 }
 
-void setCellStateAngle(Board *board, SDL_Point *cellPos)
+void drawGame(Game *g)
 {
-	Direction dir[2];
-	i32 di = 0;
+	SDL_SetRenderDrawColor(g->renderer, 50, 50, 50, 255);
+	SDL_RenderClear(g->renderer);
+	SDL_SetRenderDrawColor(g->renderer, 25, 25, 25, 255);
+	SDL_RenderFillRect(g->renderer, &g->boardDim);
 
-	// x is diff, so we moved horizontally
-	for (SDL_Point *c = cellPos - 1; c < cellPos + 1; c += 1)
+	for (i32 r = 0; r < g->board->height; r++)
 	{
-		SDL_Point *prev = c;
-		SDL_Point *curr = c + 1;
+		for (i32 c = 0; c < g->board->width; c++)
+		{
+			i32 cellX = g->boardDim.x + (c * g->cellWidth);
+			i32 cellY = g->boardDim.y + (r * g->cellHeight);
 
-		if (curr->y == prev->y)
-		{
-			if (curr->x > prev->x)
-			{
-				dir[di] = DIRECTION_RIGHT;
-			}
-			else
-			{
-				dir[di] = DIRECTION_LEFT;
-			}
+			SDL_Rect cellBg = {
+				cellX + (0.1 * g->cellWidth),
+				cellY + (0.1 * g->cellHeight),
+				g->cellWidth - (0.2 * g->cellWidth),
+				g->cellHeight - (0.2 * g->cellHeight)
+			};
+			SDL_SetRenderDrawColor(g->renderer, 0, 0, 0, 255);
+			SDL_RenderFillRect(g->renderer, &cellBg);
 		}
-		else
-		{
-			if (curr->y > prev->y)
-			{
-				dir[di] = DIRECTION_DOWN;
-			}
-			else
-			{
-				dir[di] = DIRECTION_UP;
-			}
-		}
-		di += 1;
 	}
 
-	Cell *cell = boardGet(board, cellPos->y, cellPos->x);
-	switch (dir[0])
+	for (i32 r = 0; r < g->board->height; r++)
 	{
-		case DIRECTION_UP:
-			switch (dir[1])
-			{
-				default:
-				case DIRECTION_UP:
-					cell->state = CELLSTATE_PIPE_V;
-					break;
-				case DIRECTION_LEFT:
-					cell->state = CELLSTATE_PIPE_LD;
-					break;
-				case DIRECTION_RIGHT:
-					cell->state = CELLSTATE_PIPE_RD;
-					break;
-			}
-			break;
-		case DIRECTION_DOWN:
-			switch (dir[1])
-			{
-				default:
-				case DIRECTION_DOWN:
-					cell->state = CELLSTATE_PIPE_V;
-					break;
-				case DIRECTION_LEFT:
-					cell->state = CELLSTATE_PIPE_LU;
-					break;
-				case DIRECTION_RIGHT:
-					cell->state = CELLSTATE_PIPE_RU;
-					break;
-			}
-			break;
-		case DIRECTION_LEFT:
-			switch (dir[1])
-			{
-				default:
-				case DIRECTION_LEFT:
-					cell->state = CELLSTATE_PIPE_H;
-					break;
-				case DIRECTION_UP:
-					cell->state = CELLSTATE_PIPE_RU;
-					break;
-				case DIRECTION_DOWN:
-					cell->state = CELLSTATE_PIPE_RD;
-					break;
-			}
-			break;
-		case DIRECTION_RIGHT:
-			switch (dir[1])
-			{
-				default:
-				case DIRECTION_RIGHT:
-					cell->state = CELLSTATE_PIPE_H;
-					break;
-				case DIRECTION_UP:
-					cell->state = CELLSTATE_PIPE_LU;
-					break;
-				case DIRECTION_DOWN:
-					cell->state = CELLSTATE_PIPE_LD;
-					break;
-			}
-			break;
+		for (i32 c = 0; c < g->board->width; c++)
+		{
+			i32 cellX = g->boardDim.x + (c * g->cellWidth);
+			i32 cellY = g->boardDim.y + (r * g->cellHeight);
+			SDL_Rect cell = {cellX, cellY, g->cellWidth, g->cellHeight};
+			drawPipe(g->renderer, &cell, boardGet(g->board, r, c));
+		}
 	}
+
+	SDL_RenderPresent(g->renderer);
 }
+
 
 #define DEFAULT_BOARD_SIZE 6
-void playFlow(SDL_Window *window, SDL_Renderer *renderer, Mix_Chunk *sounds[], i32 boardSize)
+void playFlow(Game *g, i32 boardSize)
 {
 	boardSize = boardSize < 2 ? DEFAULT_BOARD_SIZE : boardSize;
 
-	// generate a game board
-	Board *board = boardCreate(boardSize, boardSize);
-	pthread_t boardGenThread;
-	i32 thread = pthread_create(&boardGenThread, NULL, (void*)boardGenerate, board);
-	//boardGenerate(board, boardSize);
+	g->board = boardCreate(boardSize, boardSize);
+	SDL_CreateThread((SDL_ThreadFunction)boardGenerate, "boardGenThread", g->board);
 
-	// dimensions for drawing the board
 	i32 windowWidth, windowHeight;
-	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
-	SDL_Rect boardDim = {
+	SDL_GetWindowSize(g->window, &windowWidth, &windowHeight);
+	g->boardDim = (SDL_Rect){
 		(windowWidth - (windowWidth * 0.8)) / 2,
 		(windowHeight - (windowHeight * 0.8)) / 2,
 		windowWidth * 0.8,
 		windowHeight * 0.8
 	};
-	SDL_Point cellDim = {
-		boardDim.w / boardSize,
-		boardDim.h / boardSize
-	};
-	i32 cellWidth = boardDim.w / boardSize;
-	i32 cellHeight = boardDim.h / boardSize;
+	g->cellWidth = g->boardDim.w / boardSize;
+	g->cellHeight = g->boardDim.h / boardSize;
 
-	// information related to runnin' pipe
-	CellColor selectedColor = CELLCOLOR_RED;
-	bool piping = false;
-	CellState endPoint = CELLSTATE_PIPE_END; // pretty dumb, but we can start at end and go to start
+	g->selectedColor = CELLCOLOR_RED;
+	g->piping = false;
+	g->endPoint = CELLSTATE_PIPE_END;
 
-	SDL_Point pipeSeq[boardSize * boardSize];
-	i32 pipeSeqSize = 0;
+	g->pipeSeq = malloc(sizeof(SDL_Point) * boardSize * boardSize);
+	g->pipeSeqSize = 0;
 
-	// user input info
-	SDL_Point mouse = {0, 0};
-	bool isHovered = false;
-	SDL_Point hoveredCell = {0, 0};
-	SDL_Event event;
+	g->isHovered = false;
+	g->hoveredCell = (SDL_Point){0, 0};
+	g->gameRunning = true;
 
-	printf("Before loop\n");
-
-	bool gameRunning = true;
-	while (gameRunning)
+	while (g->gameRunning)
 	{
-		if (board->isGenerated)
+		if (g->board->isGenerated)
 		{
-			// input
-			SDL_GetMouseState(&mouse.x, &mouse.y);
-			/*
-			if (mouse.x >= boardX && mouse.x <= (boardX + boardWidth)
-				&& mouse.y >= boardY && mouse.y <= (boardY + boardHeight))
-			*/
-			if (inBounds(mouse.x, mouse.y, boardDim))
-			{
-				isHovered = true;
-				hoveredCell.y = (mouse.y - boardDim.y) / cellHeight;
-				hoveredCell.x = (mouse.x - boardDim.x) / cellWidth;
-
-				if (piping && pointsAdjacent(hoveredCell, pipeSeq[pipeSeqSize - 1]))
-					//&& !pointsEqual(hoveredCell, pipeSeq[pipeSeqSize - 1])
-					//&& pointsAdjacent(hoveredCell, pipeSeq[pipeSeqSize - 1]))
-				{
-					Cell* hovered = boardGet(board, hoveredCell.y, hoveredCell.x);
-					if (hovered->state == CELLSTATE_EMPTY)
-					{
-						hovered->color = selectedColor;
-						if (hoveredCell.y == pipeSeq[pipeSeqSize - 1].y)
-						{
-							boardSetState(board, hoveredCell.y, hoveredCell.x, CELLSTATE_PIPE_H);
-						}
-						else
-						{
-							boardSetState(board, hoveredCell.y, hoveredCell.x, CELLSTATE_PIPE_V);
-						}
-						pipeSeq[pipeSeqSize] = hoveredCell;
-						pipeSeqSize += 1;
-
-						// set correct cellstate for previous cell, which is now sandwiched
-						// between the current cell and the cell before it
-						if (pipeSeqSize > 2)
-						{
-							setCellStateAngle(board, &pipeSeq[pipeSeqSize - 2]);
-						}
-
-						Mix_PlayChannel(-1, sounds[CHUNK_CLICK_001], 0);
-					}
-					else if (boardGet(board, hoveredCell.y, hoveredCell.x)->state == endPoint
-							 && boardGet(board, hoveredCell.y, hoveredCell.x)->color == selectedColor)
-					{
-						pipeSeq[pipeSeqSize] = hoveredCell;
-						pipeSeqSize += 1;
-
-						// set correct cellstate for previous cell, which is now sandwiched
-						// between the current cell and the cell before it
-						if (pipeSeqSize > 2)
-						{
-							setCellStateAngle(board, &pipeSeq[pipeSeqSize - 2]);
-						}
-
-						piping = false;
-						pipeSeqSize = 0;
-						Mix_PlayChannel(-1, sounds[CHUNK_YUH], 0);
-					}
-				}
-			}
-			else
-			{
-				isHovered = false;
-			}
-
+			handleInput(g);
+		}
+		else
+		{
+			SDL_Event event;
 			while (SDL_PollEvent(&event))
 			{
 				switch (event.type)
 				{
 					case SDL_QUIT:
-						gameRunning = false;
-						break;
-					case SDL_MOUSEBUTTONDOWN:
-						if (!piping && isHovered)
-						{
-							Cell *hovered = boardGet(board, hoveredCell.y, hoveredCell.x);
-							if (hovered->state == CELLSTATE_PIPE_START
-								|| hovered->state == CELLSTATE_PIPE_END)
-							{
-								piping = true;
-								selectedColor = hovered->color;
-								pipeSeqSize = 1;
-								pipeSeq[0] = hoveredCell;
-								if (hovered->state == CELLSTATE_PIPE_START)
-								{
-									endPoint = CELLSTATE_PIPE_END;
-								}
-								else
-								{
-									endPoint = CELLSTATE_PIPE_START;
-								}
-							}
-						}
-						break;
-					case SDL_MOUSEBUTTONUP:
-						// if we are still piping, we haven't completed it yet, completely undo for now
-						if (piping)
-						{
-							for (i32 r = 0; r < board->height; r++)
-							{
-								for (i32 c = 0; c < board->width; c++)
-								{
-									Cell* cell = boardGet(board, r, c);
-									if (cell->state != CELLSTATE_PIPE_START
-										&& cell->state != CELLSTATE_PIPE_END
-										&& cell->color == selectedColor)
-									{
-										boardSetState(board, r, c, CELLSTATE_EMPTY);
-									}
-								}
-							}
-							piping = false;
-						}
-						break;
-				}
-			}
-
-		}
-		else // !board->isGenerated
-		{
-			while (SDL_PollEvent(&event))
-			{
-				switch (event.type)
-				{
-					case SDL_QUIT:
-						gameRunning = false;
+						g->gameRunning = false;
 						break;
 				}
 			}
 		}
-
-		// drawing
-		// clear screen with gray
-		SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
-		SDL_RenderClear(renderer);
-
-		// draw the background
-		SDL_SetRenderDrawColor(renderer, 25, 25, 25, 255);
-		SDL_RenderFillRect(renderer, &boardDim);
-
-		// draw cell stuff
-		for (i32 r = 0; r < board->height; r++)
-		{
-			for (i32 c = 0; c < board->width; c++)
-			{
-				// the cell background
-				SDL_Rect cellBg = {
-					boardDim.x + (c * cellWidth) + (0.1 * cellWidth),
-					boardDim.y + (r * cellHeight) + (0.1 * cellHeight),
-					cellWidth - (0.2 * cellWidth),
-					cellHeight - (0.2 * cellHeight)
-				};
-				SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-				SDL_RenderFillRect(renderer, &cellBg);
-
-				// the cell
-				drawCell(renderer, &cellBg, boardGet(board, r, c));
-			}
-		}
-
-		SDL_RenderPresent(renderer);
+		drawGame(g);
 	}
-	boardFree(board);
+
+	free(g->pipeSeq);
+	boardFree(g->board);
 }
 
-
-int main(int argc, char *argv[])
+void game(i32 argc, char *argv[])
 {
-	SDL_Window *window = NULL;
-	SDL_Renderer *renderer = NULL;
-	Mix_Chunk *sounds[2];
-	Mix_Chunk *placePipeSound = Mix_LoadWAV("assets/Audio/click_001.wav");
-	Mix_Chunk *yuhSound = Mix_LoadWAV("assets/Audio/YUH.wav");
-
+	Game game;
 	if (!startSDL()
-	    || !(window = SDL_CreateWindow("flow", 1920, 0, 800, 600, SDL_WINDOW_SHOWN))
-	    || !(renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED))
-	    || !(sounds[CHUNK_CLICK_001] = Mix_LoadWAV("assets/Audio/click_001.wav"))
-	    || !(sounds[CHUNK_YUH] = Mix_LoadWAV("assets/Audio/YUH.wav")))
+	    || !(game.window     = SDL_CreateWindow("flow", 1920, 0, 800, 600, SDL_WINDOW_SHOWN))
+	    || !(game.renderer   = SDL_CreateRenderer(game.window, -1, SDL_RENDERER_ACCELERATED))
+	    || !(game.clickSound = Mix_LoadWAV("assets/Audio/click_001.wav"))
+	    || !(game.yuhSound   = Mix_LoadWAV("assets/Audio/YUH.wav")))
 	{
 		fprintf(stderr, "Error initializing\n");
 		goto cleanup;
 	}
 
-	i32 boardSize = 8;
-	if (argc > 1)
-	{
-		i32 input = atoi(argv[1]);
-		if (input > 0)
-		{
-			boardSize = input;
-		}
-	}
+	i32 boardSize = argc>1 ? atoi(argv[1]) : 5;
+	i32 seed      = argc>2 ? atoi(argv[2]) : time(NULL);
 
-	if (argc > 2)
-	{
-		i32 input = atoi(argv[2]);
-		if (input > 0)
-		{
-			srand(input);
-		}
-	}
-	else
-	{
-		srand(time(NULL));
-	}
+	if (boardSize < 2) boardSize = 2;
+	srand(seed);
 
-	playFlow(window, renderer, sounds, boardSize);
-
+	playFlow(&game, boardSize);
+	
 cleanup:
-	SDL_DestroyRenderer(renderer);
-	SDL_DestroyWindow(window);
-	Mix_FreeChunk(sounds[CHUNK_YUH]);
-	Mix_FreeChunk(sounds[CHUNK_CLICK_001]);
+	SDL_DestroyRenderer(game.renderer);
+	SDL_DestroyWindow(game.window);
+	Mix_FreeChunk(game.yuhSound);
+	Mix_FreeChunk(game.clickSound);
 	quitSDL();
+}
+
+void testgen()
+{
+	srand(42);
+	Board *b = boardCreate(8, 8);
+	boardGenerate(b);
+}
+
+
+int main(int argc, char *argv[])
+{
+	game(argc, argv);
 	return 0;
 }

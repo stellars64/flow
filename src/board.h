@@ -47,18 +47,32 @@ typedef enum
 	CELLSTATE_PIPE_END,
 	CELLSTATE_PIPE_H,
 	CELLSTATE_PIPE_V,
-	CELLSTATE_PIPE_LU,
-	CELLSTATE_PIPE_LD,
-	CELLSTATE_PIPE_RU,
-	CELLSTATE_PIPE_RD,
 	CELLSTATE_COUNT
 } CellState;
+
+typedef enum
+{
+	CELLCONNECTION_NONE,
+	CELLCONNECTION_UP,
+	CELLCONNECTION_DOWN,
+	CELLCONNECTION_LEFT,
+	CELLCONNECTION_RIGHT,
+	CELLCONNECTION_COUNT
+} CellConnection;
 
 typedef struct
 {
 	CellState state;
 	CellColor color;
+	CellConnection connection;
 } Cell;
+
+typedef struct
+{
+	i32 x;
+	i32 y;
+} Vec2i;
+
 
 typedef struct
 {
@@ -66,13 +80,11 @@ typedef struct
 	i32 width;
 	i32 height;
 	bool isGenerated;
+	// for pathfinding, to avoid allocating memory every time
+	Vec2i *queue;
+	bool *wasQueued;
+	i32 *mhDistance;
 } Board;
-
-typedef struct
-{
-	i32 x;
-	i32 y;
-} Vec2i;
 
 Board* boardCreate(i32 width, i32 height);
 //
@@ -90,8 +102,12 @@ Cell* boardGet(Board *board, i32 r, i32 c);
 //
 Cell* boardGetI(Board *board, i32 index);
 //
+bool boardBoundsCheck(Board *board, i32 r, i32 c);
+//
 void boardPrint(Board *board);
 //
 bool boardGenerate(Board *board);
+//
+bool boardEmptyPathExists(Board *board, i32 r1, i32 c1, i32 r2, i32 c2);
 
 #endif
