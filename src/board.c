@@ -25,18 +25,12 @@ Board* boardCreate(i32 width, i32 height)
 		board->cells[i].connection = CELLCONNECTION_NONE;
 	}
 	board->isGenerated = false;
-	board->queue = malloc(sizeof(Vec2i) * size);
-	board->wasQueued = malloc(sizeof(bool) * size);
-	board->mhDistance = malloc(sizeof(i32) * size);
 	return board;
 }
 
 
 void boardFree(Board *board)
 {
-	free(board->mhDistance);
-	free(board->wasQueued);
-	free(board->queue);
 	free(board->cells);
 	free(board);
 }

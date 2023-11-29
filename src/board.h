@@ -80,10 +80,6 @@ typedef struct
 	i32 width;
 	i32 height;
 	bool isGenerated;
-	// for pathfinding, to avoid allocating memory every time
-	Vec2i *queue;
-	bool *wasQueued;
-	i32 *mhDistance;
 } Board;
 
 Board* boardCreate(i32 width, i32 height);
