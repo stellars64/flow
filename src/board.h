@@ -83,27 +83,27 @@ typedef struct
 } Board;
 
 Board* boardCreate(i32 width, i32 height);
-//
+
 void boardFree(Board *board);
-//
+
 void boardSetColor(Board *board, i32 r, i32 c, CellColor color);
-//
+
 void boardSetColorAll(Board *board, CellColor color);
-//
+
 void boardSetState(Board *board, i32 r, i32 c, CellState state);
-//
+
 void boardSetStateAll(Board *board, CellState state);
-//
+
 Cell* boardGet(Board *board, i32 r, i32 c);
-//
+
 Cell* boardGetI(Board *board, i32 index);
-//
+
 bool boardBoundsCheck(Board *board, i32 r, i32 c);
-//
+
 void boardPrint(Board *board);
-//
+
 bool boardGenerate(Board *board);
-//
+
 bool boardEmptyPathExists(Board *board, i32 r1, i32 c1, i32 r2, i32 c2);
 
 #endif

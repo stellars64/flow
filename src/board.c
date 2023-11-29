@@ -7,9 +7,9 @@
 
 #include "board.h"
 
-
 bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shortestPipeLength);
-
+bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shortestPipeLength,
+			   i32 currentSize, i32 row, i32 col);
 
 Board* boardCreate(i32 width, i32 height)
 {
@@ -28,31 +28,26 @@ Board* boardCreate(i32 width, i32 height)
 	return board;
 }
 
-
 void boardFree(Board *board)
 {
 	free(board->cells);
 	free(board);
 }
 
-
 void boardSetColor(Board *board, i32 r, i32 c, CellColor color)
 {
 	boardGet(board, r, c)->color = color;
 }
-
 
 void boardSetState(Board *board, i32 r, i32 c, CellState state)
 {
 	boardGet(board, r, c)->state = state;
 }
 
-
 Cell* boardGet(Board *board, i32 r, i32 c)
 {
 	return &board->cells[r * board->width + c];
 }
-
 
 Cell* boardGetI(Board *board, i32 index)
 {
@@ -63,7 +58,6 @@ bool boardBoundsCheck(Board *board, i32 r, i32 c)
 {
 	return r >= 0 && r < board->height && c >= 0 && c < board->width;
 }
-
 
 void boardPrint(Board *board)
 {
@@ -85,14 +79,10 @@ void boardPrint(Board *board)
 	}
 }
 
-
 void boardDfsFillState(Board *board, i32 row, i32 col, CellState oldState, CellState newState)
 {
-	// if out of bounds, return
-	if (row < 0 || row >= board->height || col < 0 || col >= board->width)
-	{
+	if (!boardBoundsCheck(board, row, col))
 		return;
-	}
 
 	i32 bi = row * board->width + col;
 	if (board->cells[bi].state == oldState)
@@ -109,10 +99,8 @@ bool boardIsEmptyConnected(Board *board, i32 row, i32 col)
 {
 	CellState prevState = boardGet(board, row, col)->state;
 
-	// place temp pipe
 	board->cells[row * board->width + col].state = CELLSTATE_PIPE_START;
 
-	// find empty cell
 	i32 emptyIndex = 0;
 	bool emptyFound = false;
 
@@ -127,7 +115,6 @@ bool boardIsEmptyConnected(Board *board, i32 row, i32 col)
 		}
 	}
 
-	// trivially true
 	if (!emptyFound)
 	{
 		boardGet(board, row, col)->state = prevState;
@@ -137,24 +124,18 @@ bool boardIsEmptyConnected(Board *board, i32 row, i32 col)
 	i32 emptyRow = emptyIndex / board->width;
 	i32 emptyCol = emptyIndex % board->width;
 
-	// recursively fill the empty cells with CELLSTATE_EMPTY_MARKED
 	boardDfsFillState(board, emptyRow, emptyCol, CELLSTATE_EMPTY, CELLSTATE_EMPTY_MARKED);
 
-	// check if any non-marked empty cells exist, and while we are at it unmark the marked cells
 	bool allEmptyVisited = true;
 	for (i32 i = 0; i < size; i++)
 	{
 		if (board->cells[i].state == CELLSTATE_EMPTY)
-		{
 			allEmptyVisited = false;
-		}
+
 		else if (board->cells[i].state == CELLSTATE_EMPTY_MARKED)
-		{
 			board->cells[i].state = CELLSTATE_EMPTY;
-		}
 	}
 
-	// reset temp pipe
 	board->cells[row * board->width + col].state = prevState;
 
 	return allEmptyVisited;
@@ -186,11 +167,8 @@ i32 boardAdjacentWithColor(Board *board, i32 row, i32 col, CellColor color)
 bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shortestPipeLength,
 			   i32 currentSize, i32 row, i32 col)
 {
-	// order: U,D,L,R
 	bool rejected[4] = {true, true, true, true};
 	i32 numRejected = 4;
-					//r, c
-					// UP     DOWN     LEFT     RIGHT
 	Vec2i dirs[4] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
 
 	for (i32 d = 0; d < 4; d += 1)
@@ -209,16 +187,11 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 	}
 
 	if (numRejected == 4)
-	{
 		return false;
-	}
 
 	currentSize += 1;
 	while (numRejected < 4)
 	{
-
-		// This section picks a random non-rejected direction, while avoiding
-		// calling rand() over and over again
 		i32 direction = 0;
 		{
 			i32 dir = rand() % (4 - numRejected);
@@ -240,11 +213,9 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 			}
 		}
 
-		// get row, column of the adjacent cell we are trying
 		i32 adjRow = row + dirs[direction].y;
 		i32 adjCol = col + dirs[direction].x;
 
-		// for now, the pipe will be done -p[
 		CellState pipeState;
 		if (currentSize == pipes[currentPipe])
 		{
@@ -266,27 +237,17 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 			}
 		}
 
-		// attempt to place the pipe
 		boardGet(board, adjRow, adjCol)->state = pipeState;
 		boardGet(board, adjRow, adjCol)->color = currentPipe;
 
-		// if we are finished with the current pipe
 		if (currentSize == pipes[currentPipe])
 		{
-			// if we are finished with all pipes, we are done with recursion
 			if (currentPipe == numPipes - 1)
-			{
 				return true;
-			}
-			// attempt to place the next pipe
 			else
 			{
-				// return back up the call stack on success
 				if (placeStart(board, pipes, numPipes, currentPipe + 1, shortestPipeLength))
-				{
 					return true;
-				}
-				// could not place the next pipe, so we must backtrack
 				else
 				{
 					rejected[direction] = true;
@@ -296,18 +257,11 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 				}
 			}
 		}
-		// we need to place the next segment of the pipe
 		else
 		{
-			// return back up the call stack on success
 			if (placePipe(board, pipes, numPipes, currentPipe, shortestPipeLength, currentSize,
 			              adjRow, adjCol))
-			{
-				// TODO
-				// Here is where we would alter the pipe state to be a corner of some sort
 				return true;
-			}
-			// could not place the next segment, so we must backtrack
 			else
 			{
 				rejected[direction] = true;
@@ -317,14 +271,13 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 			}
 		}
 	}
-
-	// all directions were rejected, so backtrack by returning false
 	return false;
 }
 
 bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shortestPipeLength)
 {
 	i32 rejectedSize = board->width * board->height;
+
 	bool *rejected = malloc(sizeof(bool) * rejectedSize);
 	for (i32 i = 0; i < rejectedSize; i++)
 	{
@@ -333,18 +286,14 @@ bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 sho
 
 	while (true)
 	{
-		// get number of non-rejected empty cells
 		i32 nonRejectedEmpty = 0;
 		i32 boardSize = board->width * board->height;
 		for (i32 i = 0; i < boardSize; i += 1)
 		{
 			if (boardGetI(board, i)->state == CELLSTATE_EMPTY && !rejected[i])
-			{
 				nonRejectedEmpty += 1;
-			}
 		}
 
-		// no valid way to place start
 		if (nonRejectedEmpty == 0)
 		{
 			free(rejected);
@@ -356,7 +305,6 @@ bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 sho
 		i32 startCol = 0;
 		while (true)
 		{
-			// pick a random non-rejected empty cell
 			i32 offset = rand() % nonRejectedEmpty;
 			i32 current = 0;
 			for (i32 i = 0; i < boardSize; i += 1)
@@ -374,12 +322,8 @@ bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 sho
 				}
 			}
 
-			// Check to see if emptyConnected, if so then index is a good start
 			if (boardIsEmptyConnected(board, startRow, startCol))
-			{
 				break;
-			}
-			// otherwise, mark as rejected. Check if we have any non-rejected empty cells left
 			else
 			{
 				rejected[startIndex] = true;
@@ -393,7 +337,6 @@ bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 sho
 			}
 		}
 
-		// place the start
 		boardGetI(board, startIndex)->state = CELLSTATE_PIPE_START;
 		boardGetI(board, startIndex)->color = currentPipe;
 
@@ -406,7 +349,6 @@ bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 sho
 		}
 		else
 		{
-			// mark cell as rejected, clear it off board and try again
 			rejected[startIndex] = true;
 			boardGetI(board, startIndex)->state = CELLSTATE_EMPTY;
 			boardGetI(board, startIndex)->color = 0;
@@ -427,16 +369,14 @@ bool boardGenerate(Board *board)
 	board->isGenerated = false;
 
 	if (numPipes >= CELLCOLOR_COUNT)
-	{
 		return false;
-	}
 
 	i32 size = board->width * board->height;
 	i32 *pipes = malloc(sizeof(i32) * numPipes);
 
 	for (i32 i = 0; i < numPipes; i++)
 	{
-		pipes[i] = 3; // 3 is the absolute minimum length
+		pipes[i] = 3;
 	}
 
 	i32 totalPipeLength = numPipes * 3;
@@ -452,26 +392,24 @@ bool boardGenerate(Board *board)
 	for (i32 i = 0; i < numPipes; i++)
 	{
 		if (pipes[i] < shortestPipeLength)
-		{
 			shortestPipeLength = pipes[i];
-		}
 	}
 
 	bool placed = placeStart(board, pipes, numPipes, 0, shortestPipeLength);
-	for (i32 i = 0; i < size; i++)
+	
+	for (Cell *c = board->cells; c < board->cells+size; c++)
 	{
-		if (boardGetI(board, i)->state != CELLSTATE_PIPE_START
-		    && boardGetI(board, i)->state != CELLSTATE_PIPE_END)
-		{
-			boardGetI(board, i)->state = CELLSTATE_EMPTY;
-		}
+		if (c->state != CELLSTATE_PIPE_START && c->state != CELLSTATE_PIPE_END)
+			c->state = CELLSTATE_EMPTY;
 	}
 
 	free(pipes);
 	board->isGenerated = true;
 	printf("Generated!\n");
+
 	u64 endTime = SDL_GetPerformanceCounter();
 	printf("Time taken: %f\n", (endTime - startTime) / (f64)SDL_GetPerformanceFrequency());
+
 	return placed;
 }
 
