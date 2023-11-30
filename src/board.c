@@ -24,7 +24,7 @@ Board* boardCreate(i32 width, i32 height)
 		board->cells[i].color = CELLCOLOR_RED;
 		board->cells[i].connection = CELLCONNECTION_NONE;
 	}
-	board->isGenerated = false;
+	board->genState = GENSTATE_IDLE;
 	return board;
 }
 
@@ -167,6 +167,13 @@ i32 boardAdjacentWithColor(Board *board, i32 row, i32 col, CellColor color)
 bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shortestPipeLength,
 			   i32 currentSize, i32 row, i32 col)
 {
+	// check first if we want to stop generating
+	if (board->genState == GENSTATE_STOPREQUESTED)
+	{
+		board->genState = GENSTATE_STOPPING;
+		return true;
+	}
+
 	bool rejected[4] = {true, true, true, true};
 	i32 numRejected = 4;
 	Vec2i dirs[4] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
@@ -216,60 +223,35 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 		i32 adjRow = row + dirs[direction].y;
 		i32 adjCol = col + dirs[direction].x;
 
-		CellState pipeState;
-		if (currentSize == pipes[currentPipe])
-		{
-			pipeState = CELLSTATE_PIPE_END;
-		}
-		else
-		{
-			switch (direction)
-			{
-				case DIRECTION_UP:
-				case DIRECTION_DOWN:
-					pipeState = CELLSTATE_PIPE_V;
-					break;
-				default:
-				case DIRECTION_LEFT:
-				case DIRECTION_RIGHT:
-					pipeState = CELLSTATE_PIPE_H;
-					break;
-			}
-		}
+		Cell *adjCell = boardGet(board, adjRow, adjCol);
+		bool placed = false;
 
-		boardGet(board, adjRow, adjCol)->state = pipeState;
-		boardGet(board, adjRow, adjCol)->color = currentPipe;
+		adjCell->color = currentPipe;
+		boardGet(board, row, col)->connection = direction;
 
 		if (currentSize == pipes[currentPipe])
 		{
-			if (currentPipe == numPipes - 1)
-				return true;
-			else
-			{
-				if (placeStart(board, pipes, numPipes, currentPipe + 1, shortestPipeLength))
-					return true;
-				else
-				{
-					rejected[direction] = true;
-					numRejected += 1;
-					boardGet(board, adjRow, adjCol)->state = CELLSTATE_EMPTY;
-					boardGet(board, adjRow, adjCol)->color = 0;
-				}
-			}
+			adjCell->state = CELLSTATE_PIPE_END;
+			placed = (currentPipe == numPipes - 1)
+			         || placeStart(board, pipes, numPipes, currentPipe + 1, shortestPipeLength);
 		}
 		else
 		{
-			if (placePipe(board, pipes, numPipes, currentPipe, shortestPipeLength, currentSize,
-			              adjRow, adjCol))
-				return true;
-			else
-			{
-				rejected[direction] = true;
-				numRejected += 1;
-				boardGet(board, adjRow, adjCol)->state = CELLSTATE_EMPTY;
-				boardGet(board, adjRow, adjCol)->color = 0;
-			}
+			adjCell->state = CELLSTATE_PIPE;
+			placed = placePipe(board, pipes, numPipes, currentPipe, shortestPipeLength, currentSize,
+			                   adjRow, adjCol);
 		}
+
+		if (!placed)
+		{
+			rejected[direction] = true;
+			numRejected += 1;
+			adjCell->state = CELLSTATE_EMPTY;
+			adjCell->color = 0;
+			boardGet(board, row, col)->connection = CELLCONNECTION_NONE;
+		}
+		else
+			return true;
 	}
 	return false;
 }
@@ -366,7 +348,7 @@ bool boardGenerate(Board *board)
 
 	i32 numPipes = board->width;
 
-	board->isGenerated = false;
+	board->genState = GENSTATE_GENERATING;
 
 	if (numPipes >= CELLCOLOR_COUNT)
 		return false;
@@ -396,20 +378,33 @@ bool boardGenerate(Board *board)
 	}
 
 	bool placed = placeStart(board, pipes, numPipes, 0, shortestPipeLength);
-	
-	for (Cell *c = board->cells; c < board->cells+size; c++)
+
+	if (board->genState == GENSTATE_STOPPING)
 	{
-		if (c->state != CELLSTATE_PIPE_START && c->state != CELLSTATE_PIPE_END)
+		for (Cell *c = board->cells; c < board->cells+size; c++)
+		{
 			c->state = CELLSTATE_EMPTY;
+			c->connection = CELLCONNECTION_NONE;
+		}
+		placed = false;
+	}
+	else
+	{
+		for (Cell *c = board->cells; c < board->cells+size; c++)
+		{
+			if (c->state != CELLSTATE_PIPE_START && c->state != CELLSTATE_PIPE_END)
+			{
+				c->state = CELLSTATE_EMPTY;
+			}
+			c->connection = CELLCONNECTION_NONE;
+		}
+		printf("Generated!\n");
+		u64 endTime = SDL_GetPerformanceCounter();
+		printf("Time taken: %f\n", (endTime - startTime) / (f64)SDL_GetPerformanceFrequency());
 	}
 
 	free(pipes);
-	board->isGenerated = true;
-	printf("Generated!\n");
-
-	u64 endTime = SDL_GetPerformanceCounter();
-	printf("Time taken: %f\n", (endTime - startTime) / (f64)SDL_GetPerformanceFrequency());
-
+	board->genState = GENSTATE_IDLE;
 	return placed;
 }
 

@@ -45,20 +45,27 @@ typedef enum
 	CELLSTATE_EMPTY_MARKED,
 	CELLSTATE_PIPE_START,
 	CELLSTATE_PIPE_END,
-	CELLSTATE_PIPE_H,
-	CELLSTATE_PIPE_V,
+	CELLSTATE_PIPE,
 	CELLSTATE_COUNT
 } CellState;
 
 typedef enum
 {
-	CELLCONNECTION_NONE,
 	CELLCONNECTION_UP,
 	CELLCONNECTION_DOWN,
 	CELLCONNECTION_LEFT,
 	CELLCONNECTION_RIGHT,
+	CELLCONNECTION_NONE,
 	CELLCONNECTION_COUNT
 } CellConnection;
+
+typedef enum
+{
+	GENSTATE_IDLE,
+	GENSTATE_GENERATING,
+	GENSTATE_STOPREQUESTED,
+	GENSTATE_STOPPING
+} GenState;
 
 typedef struct
 {
@@ -79,7 +86,7 @@ typedef struct
 	Cell *cells;
 	i32 width;
 	i32 height;
-	bool isGenerated;
+	GenState genState;
 } Board;
 
 Board* boardCreate(i32 width, i32 height);

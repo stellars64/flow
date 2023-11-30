@@ -5,7 +5,17 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_mixer.h>
+#include <SDL2/SDL_ttf.h>
 #include "board.h"
+
+#define INITIALIZE(call) \
+	if (!(call)) \
+	{ \
+		fprintf(stderr, "Error " #call "\n"); \
+		goto cleanup; \
+	}
+
+#define DEFAULT_BOARD_SIZE 6
 
 const SDL_Color colorMap[CELLCOLOR_COUNT] = {
 	{255,   0,   0}, // CELLCOLOR_RED
@@ -32,14 +42,70 @@ const SDL_Color colorMap[CELLCOLOR_COUNT] = {
 	{255,   0, 255}  // CELLCOLOR_FUCHSIA
 };
 
+typedef enum Sound
+{
+	SOUND_CLICK,
+	SOUND_YUH,
+	SOUND_COUNT
+} Sound;
+
+typedef enum MenuMusic
+{
+	MENUMUSIC_001,
+	MENUMUSIC_002,
+	MENUMUSIC_COUNT
+} MenuMusic;
+
+typedef enum GameMusic
+{
+	GAMEMUSIC_001,
+	GAMEMUSIC_002,
+	GAMEMUSIC_COUNT
+} GameMusic;
+
+typedef enum GameState
+{
+	GAMESTATE_NONE,
+	GAMESTATE_INTRO,
+	GAMESTATE_MENU,
+	GAMESTATE_PLAY,
+	GAMESTATE_EXIT,
+	GAMESTATE_COUNT
+} GameState;
+
+typedef struct Sprite
+{
+	SDL_Texture *texture;
+	SDL_Rect source;
+	SDL_Rect destination;
+	SDL_Point origin;
+} Sprite;
+
 typedef struct Game
 {
 	SDL_Window *window;
 	SDL_Renderer *renderer;
-	Mix_Chunk *clickSound;
-	Mix_Chunk *yuhSound;
+	Mix_Chunk *sound[SOUND_COUNT];
+	Mix_Music *menuMusic[MENUMUSIC_COUNT];
+	Mix_Music *gameMusic[GAMEMUSIC_COUNT];
+	TTF_Font *font;
+	SDL_Texture *menuTexture;
+	SDL_Rect menuTextureRect;
+
+	// mc ride
+	SDL_Texture *rideTexture;
+	u64 rideTime;
+	SDL_Rect rideRect;
+	SDL_Point rideDirection;
+
+
+	u64 dt;
+	u64 lastTime;
+
+	i32 boardSize;
 	Board *board;
 	bool gameRunning;
+	GameState gameState;
 	SDL_Point mouse;
 	bool isHovered;
 	SDL_Point hoveredCell;
@@ -62,11 +128,28 @@ void drawPipeEnd(SDL_Renderer*, SDL_Rect*, SDL_Color);
 void drawPipeSection(SDL_Renderer*, SDL_Rect*, CellConnection, SDL_Color);
 void drawPipe(SDL_Renderer*, SDL_Rect*, Cell*);
 void setCellConnection(Board*, SDL_Point, SDL_Point);
-void handleInput(Game *g);
-void drawGame(Game *g);
-void playFlow(Game *g, i32 boardSize);
-void game(i32, char*[]);
-void testgen();
+
+void switchState(Game *g, GameState state);
+
+void introInit(Game *g);
+void introInput(Game *g);
+void introDraw(Game *g);
+void introExit(Game *g);
+
+void menuInit(Game *g);
+void menuInput(Game *g);
+void menuDraw(Game *g);
+void menuExit(Game *g);
+
+void playInit(Game *g);
+void playInput(Game *g);
+void playDraw(Game *g);
+void playExit(Game *g);
+
+void exitInit(Game *g);
+void exitInput(Game *g);
+void exitDraw(Game *g);
+void exitExit(Game *g);
 
 bool startSDL()
 {
@@ -83,6 +166,11 @@ bool startSDL()
 	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0)
 	{
 		fprintf(stderr, "SDL_mixer could not initialize! SDL_mixer Error: %s\n", Mix_GetError());
+		return false;
+	}
+	if (TTF_Init() < 0)
+	{
+		fprintf(stderr, "SDL_ttf could not initialize! SDL_ttf Error: %s\n", TTF_GetError());
 		return false;
 	}
 	return true;
@@ -125,7 +213,7 @@ void drawPipeEnd(SDL_Renderer *renderer, SDL_Rect *cellDim, SDL_Color color)
 }
 
 void drawPipeSection(SDL_Renderer *renderer, SDL_Rect *cellDim, CellConnection connection,
-                     SDL_Color color)
+					 SDL_Color color)
 {
 	SDL_Rect dest;
 	switch (connection)
@@ -169,7 +257,7 @@ void drawPipe(SDL_Renderer *renderer, SDL_Rect *cellDim, Cell *cell)
 	if (cell->state == CELLSTATE_PIPE_START || cell->state == CELLSTATE_PIPE_END)
 		drawPipeEnd(renderer, cellDim, color);
 
-	if (cell->connection != CELLCONNECTION_NONE)
+	if (cell->state != CELLSTATE_EMPTY && cell->connection != CELLCONNECTION_NONE)
 		drawPipeSection(renderer, cellDim, cell->connection, color);
 }
 
@@ -188,8 +276,203 @@ void setCellConnection(Board *board, SDL_Point cell1, SDL_Point cell2)
 		boardGet(board, cell1.y, cell1.x)->connection = CELLCONNECTION_UP;
 }
 
-void handleInput(Game *g)
+void switchState(Game *g, GameState state)
 {
+	switch (g->gameState)
+	{
+		default:
+		case GAMESTATE_NONE:
+		case GAMESTATE_COUNT:
+			break;
+		case GAMESTATE_INTRO:
+			introExit(g);
+			break;
+		case GAMESTATE_MENU:
+			menuExit(g);
+			break;
+		case GAMESTATE_PLAY:
+			playExit(g);
+			break;
+		case GAMESTATE_EXIT:
+			exitExit(g);
+			break;
+	}
+	g->gameState = state;
+	switch (g->gameState)
+	{
+		default:
+		case GAMESTATE_NONE:
+		case GAMESTATE_COUNT:
+			break;
+		case GAMESTATE_INTRO:
+			introInit(g);
+			break;
+		case GAMESTATE_MENU:
+			menuInit(g);
+			break;
+		case GAMESTATE_PLAY:
+			playInit(g);
+			break;
+		case GAMESTATE_EXIT:
+			exitInit(g);
+			break;
+	}
+}
+
+void introInit(Game *g)
+{
+
+}
+
+void introInput(Game *g)
+{
+
+}
+
+void introDraw(Game *g)
+{
+
+}
+
+void introExit(Game *g)
+{
+
+}
+
+void menuInit(Game *g)
+{
+	SDL_Color white = {255, 255, 255, 255};
+	SDL_Surface *ts = TTF_RenderText_Solid(g->font, "Welcome to Flow", white); 
+	g->menuTexture = SDL_CreateTextureFromSurface(g->renderer, ts);
+	i32 ww, wh;
+	SDL_GetWindowSize(g->window, &ww, &wh);
+	g->menuTextureRect = (SDL_Rect){
+		(ww / 2) - (ts->w / 2),
+		(wh / 2) - (ts->h / 2),
+		ts->w,
+		ts->h
+	};
+	SDL_FreeSurface(ts);
+	Mix_PlayMusic(g->menuMusic[MENUMUSIC_001], -1);
+}
+
+void menuInput(Game *g)
+{
+	SDL_Event event;
+	while (SDL_PollEvent(&event))
+	{
+		switch (event.type)
+		{
+			case SDL_QUIT:
+				g->gameRunning = false;
+				break;
+			case SDL_KEYDOWN:
+				switch (event.key.keysym.sym)
+				{
+					case SDLK_ESCAPE:
+						g->gameRunning = false;
+						break;
+					case SDLK_RETURN:
+						switchState(g, GAMESTATE_PLAY);
+						break;
+					default:
+						break;
+				}
+				break;
+		}
+	}
+
+}
+
+void menuDraw(Game *g)
+{
+	SDL_SetRenderDrawColor(g->renderer, 0, 0, 0, 255);
+	SDL_RenderClear(g->renderer);
+	SDL_RenderCopy(g->renderer, g->menuTexture, NULL, &g->menuTextureRect);
+	SDL_RenderPresent(g->renderer);
+}
+
+void menuExit(Game *g)
+{
+	SDL_DestroyTexture(g->menuTexture);
+}
+
+void playInit(Game *g)
+{
+	g->board = boardCreate(g->boardSize, g->boardSize);
+	SDL_CreateThread((SDL_ThreadFunction)boardGenerate, "boardGenThread", g->board);
+
+	i32 windowWidth, windowHeight;
+	SDL_GetWindowSize(g->window, &windowWidth, &windowHeight);
+	g->boardDim = (SDL_Rect){
+		(windowWidth - (windowWidth * 0.8)) / 2,
+		(windowHeight - (windowHeight * 0.8)) / 2,
+		windowWidth * 0.8,
+		windowHeight * 0.8
+	};
+	g->cellWidth = g->boardDim.w / g->boardSize;
+	g->cellHeight = g->boardDim.h / g->boardSize;
+
+	g->selectedColor = CELLCOLOR_RED;
+	g->piping = false;
+	g->endPoint = CELLSTATE_PIPE_END;
+
+	g->pipeSeq = malloc(sizeof(SDL_Point) * g->boardSize * g->boardSize);
+	g->pipeSeqSize = 0;
+
+	g->isHovered = false;
+	g->hoveredCell = (SDL_Point){0, 0};
+	g->gameRunning = true;
+
+	g->lastTime = SDL_GetTicks64();
+
+	Mix_PlayMusic(g->gameMusic[GAMEMUSIC_001], -1);
+}
+
+void playInput(Game *g)
+{
+	// get delta time
+	u64 currTime = SDL_GetTicks64();
+	g->dt = (currTime - g->lastTime);
+	g->lastTime = currTime;
+
+	// decrement timers
+	if (g->rideTime > 0)
+	{
+		g->rideTime -= g->dt;
+		if (g->rideTime < 0)
+		{
+			g->rideTime = 0;
+		}
+		else
+		{
+			g->rideRect.x += g->rideDirection.x * (g->dt / 1000.0f);
+			g->rideRect.y += g->rideDirection.y * (g->dt / 1000.0f);
+		}
+	}
+
+	if (g->board->genState != GENSTATE_IDLE)
+	{
+		SDL_Event event;
+		while (SDL_PollEvent(&event))
+		{
+			switch (event.type)
+			{
+				case SDL_QUIT:
+					g->gameRunning = false;
+					break;
+				case SDL_KEYDOWN:
+					if (event.key.keysym.sym == SDLK_r)
+					{
+						g->board->genState = GENSTATE_STOPREQUESTED;
+						printf("Stopping board generation\n");
+					}
+					break;
+			}
+		}
+		return;
+	}
+
 	if (!g->gameRunning)
 		return;
 
@@ -223,13 +506,26 @@ void handleInput(Game *g)
 				{
 					g->piping = false;
 					g->pipeSeqSize = 0;
-					Mix_PlayChannel(-1, g->yuhSound, 0);
+					Mix_PlayChannel(-1, g->sound[SOUND_YUH], 0);
+					// mc ride time
+					g->rideTime = 1000;
+					i32 rideW = g->cellWidth * 2;
+					i32 rideH = g->cellHeight * 2;
+					i32 rideX = rand() % (g->boardDim.w - rideW);
+					i32 rideY = rand() % (g->boardDim.h - rideH);
+					g->rideRect = (SDL_Rect){rideX, rideY, rideW, rideH};
+					// random direction, from -1, -1 to 1, 1
+					g->rideDirection = (SDL_Point){rand() % 3 - 1, rand() % 3 - 1};
+					if (g->rideDirection.x == 0 && g->rideDirection.y == 0)
+					{
+						g->rideDirection.x = 1;
+					}
 				}
 				else
 				{
 					hovered->color = g->selectedColor;
-					boardSetState(g->board, g->hoveredCell.y, g->hoveredCell.x, CELLSTATE_PIPE_H);
-					Mix_PlayChannel(-1, g->clickSound, 0);
+					boardSetState(g->board, g->hoveredCell.y, g->hoveredCell.x, CELLSTATE_PIPE);
+					Mix_PlayChannel(-1, g->sound[SOUND_CLICK], 0);
 				}
 			}
 			else if (g->pipeSeqSize > 1)
@@ -241,10 +537,11 @@ void handleInput(Game *g)
 					boardGet(g->board, (*currPipe).y, (*currPipe).x)->state = CELLSTATE_EMPTY;
 					(*currPipe) = (SDL_Point){0, 0};
 
-					boardGet(g->board, (*prevPipe).y, (*prevPipe).x)->connection = CELLCONNECTION_NONE;
+					boardGet(g->board, (*prevPipe).y, (*prevPipe).x)->connection
+						= CELLCONNECTION_NONE;
 
 					g->pipeSeqSize -= 1;
-					Mix_PlayChannel(-1, g->clickSound, 0);
+					Mix_PlayChannel(-1, g->sound[SOUND_CLICK], 0);
 				}
 			}
 		}
@@ -310,7 +607,7 @@ void handleInput(Game *g)
 	}
 }
 
-void drawGame(Game *g)
+void playDraw(Game *g)
 {
 	SDL_SetRenderDrawColor(g->renderer, 50, 50, 50, 255);
 	SDL_RenderClear(g->renderer);
@@ -346,78 +643,58 @@ void drawGame(Game *g)
 		}
 	}
 
-	SDL_RenderPresent(g->renderer);
-}
-
-
-#define DEFAULT_BOARD_SIZE 6
-void playFlow(Game *g, i32 boardSize)
-{
-	boardSize = boardSize < 2 ? DEFAULT_BOARD_SIZE : boardSize;
-
-	g->board = boardCreate(boardSize, boardSize);
-	SDL_CreateThread((SDL_ThreadFunction)boardGenerate, "boardGenThread", g->board);
-
-	i32 windowWidth, windowHeight;
-	SDL_GetWindowSize(g->window, &windowWidth, &windowHeight);
-	g->boardDim = (SDL_Rect){
-		(windowWidth - (windowWidth * 0.8)) / 2,
-		(windowHeight - (windowHeight * 0.8)) / 2,
-		windowWidth * 0.8,
-		windowHeight * 0.8
-	};
-	g->cellWidth = g->boardDim.w / boardSize;
-	g->cellHeight = g->boardDim.h / boardSize;
-
-	g->selectedColor = CELLCOLOR_RED;
-	g->piping = false;
-	g->endPoint = CELLSTATE_PIPE_END;
-
-	g->pipeSeq = malloc(sizeof(SDL_Point) * boardSize * boardSize);
-	g->pipeSeqSize = 0;
-
-	g->isHovered = false;
-	g->hoveredCell = (SDL_Point){0, 0};
-	g->gameRunning = true;
-
-	while (g->gameRunning)
+	// draw ride
+	if (g->rideTime > 0)
 	{
-		if (g->board->isGenerated)
-		{
-			handleInput(g);
-		}
-		else
-		{
-			SDL_Event event;
-			while (SDL_PollEvent(&event))
-			{
-				switch (event.type)
-				{
-					case SDL_QUIT:
-						g->gameRunning = false;
-						break;
-				}
-			}
-		}
-		drawGame(g);
+		SDL_RenderCopy(g->renderer, g->rideTexture, NULL, &g->rideRect);
 	}
 
+	SDL_RenderPresent(g->renderer);
+
+}
+
+void playExit(Game *g)
+{
 	free(g->pipeSeq);
 	boardFree(g->board);
 }
 
-void game(i32 argc, char *argv[])
+void exitInit(Game *g)
+{
+	g->gameRunning = false;
+}
+
+void exitInput(Game *g)
+{
+
+}
+
+void exitDraw(Game *g)
+{
+
+}
+
+void exitExit(Game *g)
+{
+
+}
+
+
+
+int main(int argc, char *argv[])
 {
 	Game game;
-	if (!startSDL()
-	    || !(game.window     = SDL_CreateWindow("flow", 1920, 0, 800, 600, SDL_WINDOW_SHOWN))
-	    || !(game.renderer   = SDL_CreateRenderer(game.window, -1, SDL_RENDERER_ACCELERATED))
-	    || !(game.clickSound = Mix_LoadWAV("assets/Audio/click_001.wav"))
-	    || !(game.yuhSound   = Mix_LoadWAV("assets/Audio/YUH.wav")))
-	{
-		fprintf(stderr, "Error initializing\n");
-		goto cleanup;
-	}
+	INITIALIZE(startSDL());
+	INITIALIZE(game.window = SDL_CreateWindow("flow", 1920, 0, 800, 600, SDL_WINDOW_SHOWN));
+	INITIALIZE(game.renderer = SDL_CreateRenderer(game.window, -1, SDL_RENDERER_ACCELERATED));
+	INITIALIZE(game.sound[SOUND_CLICK] = Mix_LoadWAV("assets/Audio/click_001.wav"));
+	INITIALIZE(game.sound[SOUND_YUH] = Mix_LoadWAV("assets/Audio/YUH.wav"));
+	INITIALIZE(game.menuMusic[MENUMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song1.wav"));
+	INITIALIZE(game.menuMusic[MENUMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-intro.wav"));
+	INITIALIZE(game.gameMusic[GAMEMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song2.wav"));
+	INITIALIZE(game.gameMusic[GAMEMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-game.wav"));
+	INITIALIZE(game.font = TTF_OpenFont("assets/Fonts/IosevkaTermNerdFont-Bold.ttf", 24));
+	INITIALIZE(game.rideTexture = IMG_LoadTexture(game.renderer, "assets/Sprites/ride.png"));
 
 	i32 boardSize = argc>1 ? atoi(argv[1]) : 5;
 	i32 seed      = argc>2 ? atoi(argv[2]) : time(NULL);
@@ -425,26 +702,45 @@ void game(i32 argc, char *argv[])
 	if (boardSize < 2) boardSize = 2;
 	srand(seed);
 
-	playFlow(&game, boardSize);
-	
+	game.boardSize = boardSize < 2 ? DEFAULT_BOARD_SIZE : boardSize;
+
+	game.gameState = GAMESTATE_NONE;
+	switchState(&game, GAMESTATE_MENU);
+
+	while (game.gameRunning)
+	{
+		switch (game.gameState)
+		{
+			default:
+			case GAMESTATE_COUNT:
+			case GAMESTATE_INTRO:
+				introInput(&game);
+				introDraw(&game);
+				break;
+			case GAMESTATE_MENU:
+				menuInput(&game);
+				menuDraw(&game);
+				break;
+			case GAMESTATE_PLAY:
+				playInput(&game);
+				playDraw(&game);
+				break;
+			case GAMESTATE_EXIT:
+				exitInput(&game);
+				exitDraw(&game);
+				break;
+		}
+	}
+
 cleanup:
 	SDL_DestroyRenderer(game.renderer);
 	SDL_DestroyWindow(game.window);
-	Mix_FreeChunk(game.yuhSound);
-	Mix_FreeChunk(game.clickSound);
+	for (i32 i = 0; i < SOUND_COUNT; i++)
+		Mix_FreeChunk(game.sound[i]);
+	for (i32 i = 0; i < MENUMUSIC_COUNT; i++)
+		Mix_FreeMusic(game.menuMusic[i]);
+	for (i32 i = 0; i < GAMEMUSIC_COUNT; i++)
+		Mix_FreeMusic(game.gameMusic[i]);
 	quitSDL();
-}
-
-void testgen()
-{
-	srand(42);
-	Board *b = boardCreate(8, 8);
-	boardGenerate(b);
-}
-
-
-int main(int argc, char *argv[])
-{
-	game(argc, argv);
 	return 0;
 }
