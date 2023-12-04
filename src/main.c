@@ -8,13 +8,6 @@
 #include <SDL2/SDL_ttf.h>
 #include "board.h"
 
-#define INITIALIZE(call) \
-	if (!(call)) \
-	{ \
-		fprintf(stderr, "Error " #call "\n"); \
-		goto cleanup; \
-	}
-
 #define DEFAULT_BOARD_SIZE 6
 
 const SDL_Color colorMap[CELLCOLOR_COUNT] = {
@@ -65,12 +58,11 @@ typedef enum GameMusic
 
 typedef enum GameState
 {
-	GAMESTATE_NONE,
+	GAMESTATE_EXIT,
 	GAMESTATE_INTRO,
 	GAMESTATE_MENU,
 	GAMESTATE_PLAY,
-	GAMESTATE_EXIT,
-	GAMESTATE_COUNT
+	GAMESTATE_PAUSE
 } GameState;
 
 typedef struct Sprite
@@ -81,6 +73,23 @@ typedef struct Sprite
 	SDL_Point origin;
 } Sprite;
 
+typedef struct MenuButton
+{
+	SDL_Rect bounds;
+	SDL_Texture *texture;
+	bool hovered;
+	bool clicked;
+} MenuButton;
+
+typedef struct Menu
+{
+	MenuButton *welcomeMsg;
+	MenuButton *play8_8;
+	MenuButton *play9_9;
+	MenuButton *play10_10;
+	MenuButton *exit;
+} Menu;
+
 typedef struct Game
 {
 	SDL_Window *window;
@@ -89,23 +98,19 @@ typedef struct Game
 	Mix_Music *menuMusic[MENUMUSIC_COUNT];
 	Mix_Music *gameMusic[GAMEMUSIC_COUNT];
 	TTF_Font *font;
-	SDL_Texture *menuTexture;
-	SDL_Rect menuTextureRect;
 
-	// mc ride
-	SDL_Texture *rideTexture;
-	u64 rideTime;
-	SDL_Rect rideRect;
-	SDL_Point rideDirection;
-
+	Menu menu;
 
 	u64 dt;
 	u64 lastTime;
 
+	bool isTimerStarted;
+	u64 gameTimer;
+
 	i32 boardSize;
 	Board *board;
-	bool gameRunning;
-	GameState gameState;
+	bool running;
+	GameState state;
 	SDL_Point mouse;
 	bool isHovered;
 	SDL_Point hoveredCell;
@@ -119,6 +124,7 @@ typedef struct Game
 	i32 cellHeight;
 } Game;
 
+
 bool startSDL();
 void quitSDL();
 bool inBounds(i32, i32, SDL_Rect);
@@ -128,28 +134,38 @@ void drawPipeEnd(SDL_Renderer*, SDL_Rect*, SDL_Color);
 void drawPipeSection(SDL_Renderer*, SDL_Rect*, CellConnection, SDL_Color);
 void drawPipe(SDL_Renderer*, SDL_Rect*, Cell*);
 void setCellConnection(Board*, SDL_Point, SDL_Point);
+void clearPipe(Board *b, CellColor color);
+SDL_Texture* createSDLText(SDL_Renderer*, const char*, TTF_Font*, SDL_Color);
+MenuButton* createMenuButton(SDL_Texture *texture, int x, int y);
+void drawMenuButton(SDL_Renderer *renderer, MenuButton *button);
+void destroyMenuButton(MenuButton *button);
+
 
 void switchState(Game *g, GameState state);
 
 void introInit(Game *g);
+void introLoop(Game *g);
 void introInput(Game *g);
 void introDraw(Game *g);
 void introExit(Game *g);
 
 void menuInit(Game *g);
+void menuLoop(Game *g);
 void menuInput(Game *g);
 void menuDraw(Game *g);
 void menuExit(Game *g);
 
 void playInit(Game *g);
+void playLoop(Game *g);
 void playInput(Game *g);
 void playDraw(Game *g);
 void playExit(Game *g);
 
-void exitInit(Game *g);
-void exitInput(Game *g);
-void exitDraw(Game *g);
-void exitExit(Game *g);
+void pauseInit(Game *g);
+void pauseLoop(Game *g);
+void pauseInput(Game *g);
+void pauseDraw(Game *g);
+void pauseExit(Game *g);
 
 bool startSDL()
 {
@@ -178,6 +194,7 @@ bool startSDL()
 
 void quitSDL()
 {
+	TTF_Quit();
 	Mix_Quit();
 	IMG_Quit();
 	SDL_Quit();
@@ -276,50 +293,147 @@ void setCellConnection(Board *board, SDL_Point cell1, SDL_Point cell2)
 		boardGet(board, cell1.y, cell1.x)->connection = CELLCONNECTION_UP;
 }
 
-void switchState(Game *g, GameState state)
+
+void clearPipe(Board *b, CellColor color)
 {
-	switch (g->gameState)
+	for (i32 i = 0; i < b->width * b->height; i++)
 	{
-		default:
-		case GAMESTATE_NONE:
-		case GAMESTATE_COUNT:
-			break;
-		case GAMESTATE_INTRO:
-			introExit(g);
-			break;
-		case GAMESTATE_MENU:
-			menuExit(g);
-			break;
-		case GAMESTATE_PLAY:
-			playExit(g);
-			break;
-		case GAMESTATE_EXIT:
-			exitExit(g);
-			break;
-	}
-	g->gameState = state;
-	switch (g->gameState)
-	{
-		default:
-		case GAMESTATE_NONE:
-		case GAMESTATE_COUNT:
-			break;
-		case GAMESTATE_INTRO:
-			introInit(g);
-			break;
-		case GAMESTATE_MENU:
-			menuInit(g);
-			break;
-		case GAMESTATE_PLAY:
-			playInit(g);
-			break;
-		case GAMESTATE_EXIT:
-			exitInit(g);
-			break;
+		Cell *cell = &b->cells[i];
+		if (cell->color == color)
+		{
+			cell->connection = CELLCONNECTION_NONE;
+			if (cell->state != CELLSTATE_PIPE_START && cell->state != CELLSTATE_PIPE_END)
+			{
+				cell->state = CELLSTATE_EMPTY;
+			}
+		}
 	}
 }
 
+SDL_Texture* createSDLText(SDL_Renderer *rdr, const char *text, TTF_Font *font, SDL_Color color)
+{
+	SDL_Surface *surf = TTF_RenderText_Blended(font, text, color);
+	if (!surf)
+	{
+		TTF_CloseFont(font);
+		fprintf(stderr, "TTF_RenderText: %s\n", TTF_GetError());
+		return NULL;
+	}
+	SDL_Texture *texture = SDL_CreateTextureFromSurface(rdr, surf);
+	if (!texture)
+	{
+		fprintf(stderr, "SDL_CreateTexture: %s\n", SDL_GetError());
+	}
+	SDL_FreeSurface(surf);
+	return texture;
+}
+
+// creates a button that is centered at x, y
+MenuButton* createMenuButton(SDL_Texture *texture, int x, int y)
+{
+	if (!texture)
+		return NULL;
+
+	MenuButton *button = malloc(sizeof(MenuButton));
+	if (!button)
+		return NULL;
+
+	button->texture = texture;
+	SDL_QueryTexture(texture, NULL, NULL, &button->bounds.w, &button->bounds.h);
+	button->bounds.x = x - (button->bounds.w / 2);
+	button->bounds.y = y - (button->bounds.h / 2);
+	return button;
+}
+
+void drawMenuButton(SDL_Renderer *renderer, MenuButton *button)
+{
+	if (button->hovered)
+		SDL_SetTextureColorMod(button->texture, 255, 255, 255);
+	else
+		SDL_SetTextureColorMod(button->texture, 128, 128, 128);
+
+	SDL_RenderCopy(renderer, button->texture, NULL, &button->bounds);
+
+	SDL_SetTextureColorMod(button->texture, 255, 255, 255);
+}
+
+void destroyMenuButton(MenuButton *button)
+{
+	if (!button)
+		return;
+	SDL_DestroyTexture(button->texture);
+	free(button);
+}
+
+void switchState(Game *g, GameState state)
+{
+	if (state == g->state)
+	{
+		return;
+	}
+
+	printf("Switching state from %d to %d\n", g->state, state);
+
+	// initialize all states after current and up to and including new state
+	if (state > g->state)
+	{
+		for (int gs = g->state + 1; gs <= state; gs++)
+		{
+			switch (gs)
+			{
+				default:
+				case GAMESTATE_EXIT:
+					break;
+				case GAMESTATE_INTRO:
+					introInit(g);
+					break;
+				case GAMESTATE_MENU:
+					menuInit(g);
+					break;
+				case GAMESTATE_PLAY:
+					playInit(g);
+					break;
+				case GAMESTATE_PAUSE:
+					pauseInit(g);
+					break;
+			}
+		}
+	}
+
+	// exit all states after new state and up to and including current state
+	if (state < g->state)
+	{
+		for (int gs = g->state; gs > state; gs--)
+		{
+			switch (gs)
+			{
+				default:
+				case GAMESTATE_EXIT:
+					break;
+				case GAMESTATE_INTRO:
+					introExit(g);
+					break;
+				case GAMESTATE_MENU:
+					menuExit(g);
+					break;
+				case GAMESTATE_PLAY:
+					playExit(g);
+					break;
+				case GAMESTATE_PAUSE:
+					pauseExit(g);
+					break;
+			}
+		}
+	}
+
+	g->state = state;
+}
+
 void introInit(Game *g)
+{
+
+}
+void introLoop(Game *g)
 {
 
 }
@@ -341,36 +455,89 @@ void introExit(Game *g)
 
 void menuInit(Game *g)
 {
+	SDL_Texture *welcomeMsgt, *play8x8t, *play9x9t, *play10x10t, *exit;
 	SDL_Color white = {255, 255, 255, 255};
-	SDL_Surface *ts = TTF_RenderText_Solid(g->font, "Welcome to Flow", white); 
-	g->menuTexture = SDL_CreateTextureFromSurface(g->renderer, ts);
+	SDL_Color green = {  0, 255,   0, 255};
+
+	welcomeMsgt= createSDLText(g->renderer, "Welcome to Flow", g->font, green);
+	play8x8t   = createSDLText(g->renderer, "Play 8x8",        g->font, white);
+	play9x9t   = createSDLText(g->renderer, "Play 9x9",        g->font, white);
+	play10x10t = createSDLText(g->renderer, "Play 10x10",      g->font, white);
+	exit       = createSDLText(g->renderer, "Exit",            g->font, white);
+
 	i32 ww, wh;
 	SDL_GetWindowSize(g->window, &ww, &wh);
-	g->menuTextureRect = (SDL_Rect){
-		(ww / 2) - (ts->w / 2),
-		(wh / 2) - (ts->h / 2),
-		ts->w,
-		ts->h
-	};
-	SDL_FreeSurface(ts);
+
+	g->menu.welcomeMsg = createMenuButton(welcomeMsgt, ww / 2, wh*1 / 11);
+	g->menu.play8_8    = createMenuButton(play8x8t,    ww / 2, wh*2 / 11);
+	g->menu.play9_9    = createMenuButton(play9x9t,    ww / 2, wh*3 / 11);
+	g->menu.play10_10  = createMenuButton(play10x10t,  ww / 2, wh*4 / 11);
+	g->menu.exit       = createMenuButton(exit,        ww / 2, wh*5 / 11);
+
 	Mix_PlayMusic(g->menuMusic[MENUMUSIC_001], -1);
+}
+
+void menuLoop(Game *g)
+{
+	menuInput(g);
+	while (g->running && g->state == GAMESTATE_MENU)
+	{
+		menuDraw(g);
+		SDL_RenderPresent(g->renderer);
+		menuInput(g);
+	}
 }
 
 void menuInput(Game *g)
 {
+	// mouse events
+	i32 mx, my;
+	u32 mb = SDL_GetMouseState(&mx, &my);
+
+	// set hover for buttons
+	g->menu.welcomeMsg->hovered = true;
+	g->menu.play8_8->hovered    = inBounds(mx, my, g->menu.play8_8->bounds);
+	g->menu.play9_9->hovered    = inBounds(mx, my, g->menu.play9_9->bounds);
+	g->menu.play10_10->hovered  = inBounds(mx, my, g->menu.play10_10->bounds);
+	g->menu.exit->hovered       = inBounds(mx, my, g->menu.exit->bounds);
+
+	// check for hovered and clicked
+	if (mb & SDL_BUTTON(SDL_BUTTON_LEFT))
+	{
+		if (g->menu.play8_8->hovered)
+		{
+			g->boardSize = 8;
+			switchState(g, GAMESTATE_PLAY);
+		}
+		else if (g->menu.play9_9->hovered)
+		{
+			g->boardSize = 9;
+			switchState(g, GAMESTATE_PLAY);
+		}
+		else if (g->menu.play10_10->hovered)
+		{
+			g->boardSize = 10;
+			switchState(g, GAMESTATE_PLAY);
+		}
+		else if (g->menu.exit->hovered)
+		{
+			switchState(g, GAMESTATE_EXIT);
+		}
+	}
+
 	SDL_Event event;
 	while (SDL_PollEvent(&event))
 	{
 		switch (event.type)
 		{
 			case SDL_QUIT:
-				g->gameRunning = false;
+				g->running = false;
 				break;
 			case SDL_KEYDOWN:
 				switch (event.key.keysym.sym)
 				{
 					case SDLK_ESCAPE:
-						g->gameRunning = false;
+						switchState(g, GAMESTATE_EXIT);
 						break;
 					case SDLK_RETURN:
 						switchState(g, GAMESTATE_PLAY);
@@ -381,20 +548,26 @@ void menuInput(Game *g)
 				break;
 		}
 	}
-
 }
 
 void menuDraw(Game *g)
 {
 	SDL_SetRenderDrawColor(g->renderer, 0, 0, 0, 255);
 	SDL_RenderClear(g->renderer);
-	SDL_RenderCopy(g->renderer, g->menuTexture, NULL, &g->menuTextureRect);
-	SDL_RenderPresent(g->renderer);
+	drawMenuButton(g->renderer, g->menu.welcomeMsg);
+	drawMenuButton(g->renderer, g->menu.play8_8);
+	drawMenuButton(g->renderer, g->menu.play9_9);
+	drawMenuButton(g->renderer, g->menu.play10_10);
+	drawMenuButton(g->renderer, g->menu.exit);
 }
 
 void menuExit(Game *g)
 {
-	SDL_DestroyTexture(g->menuTexture);
+	destroyMenuButton(g->menu.welcomeMsg);
+	destroyMenuButton(g->menu.play8_8);
+	destroyMenuButton(g->menu.play9_9);
+	destroyMenuButton(g->menu.play10_10);
+	destroyMenuButton(g->menu.exit);
 }
 
 void playInit(Game *g)
@@ -422,34 +595,34 @@ void playInit(Game *g)
 
 	g->isHovered = false;
 	g->hoveredCell = (SDL_Point){0, 0};
-	g->gameRunning = true;
+	g->running = true;
 
 	g->lastTime = SDL_GetTicks64();
+
+	g->isTimerStarted = false;
 
 	Mix_PlayMusic(g->gameMusic[GAMEMUSIC_001], -1);
 }
 
+void playLoop(Game *g)
+{
+	playInput(g);
+	while (g->running && g->state == GAMESTATE_PLAY)
+	{
+		playDraw(g);
+		SDL_RenderPresent(g->renderer);
+		playInput(g);
+	}
+}
+
 void playInput(Game *g)
 {
-	// get delta time
+	if (!g->running)
+		return;
+
 	u64 currTime = SDL_GetTicks64();
 	g->dt = (currTime - g->lastTime);
 	g->lastTime = currTime;
-
-	// decrement timers
-	if (g->rideTime > 0)
-	{
-		g->rideTime -= g->dt;
-		if (g->rideTime < 0)
-		{
-			g->rideTime = 0;
-		}
-		else
-		{
-			g->rideRect.x += g->rideDirection.x * (g->dt / 1000.0f);
-			g->rideRect.y += g->rideDirection.y * (g->dt / 1000.0f);
-		}
-	}
 
 	if (g->board->genState != GENSTATE_IDLE)
 	{
@@ -459,22 +632,39 @@ void playInput(Game *g)
 			switch (event.type)
 			{
 				case SDL_QUIT:
-					g->gameRunning = false;
+					g->running = false;
 					break;
 				case SDL_KEYDOWN:
 					if (event.key.keysym.sym == SDLK_r)
 					{
 						g->board->genState = GENSTATE_STOPREQUESTED;
-						printf("Stopping board generation\n");
+					}
+					if (event.key.keysym.sym == SDLK_p)
+					{
+						switchState(g, GAMESTATE_PAUSE);
 					}
 					break;
 			}
 		}
 		return;
 	}
+	else
+	{
+		if (!g->isTimerStarted)
+		{
+			g->isTimerStarted = true;
+			g->gameTimer = 1000 * 60 * 1;
+			g->gameTimer += 15000; // add 15 seconds
+		}
+	}
 
-	if (!g->gameRunning)
-		return;
+	// update timer
+	g->gameTimer -= g->dt;
+	if (g->gameTimer <= 0)
+	{
+		// just switch to the menu for now...
+		switchState(g, GAMESTATE_MENU);
+	}
 
 	SDL_Point mouse;
 	SDL_GetMouseState(&mouse.x, &mouse.y);
@@ -507,18 +697,24 @@ void playInput(Game *g)
 					g->piping = false;
 					g->pipeSeqSize = 0;
 					Mix_PlayChannel(-1, g->sound[SOUND_YUH], 0);
-					// mc ride time
-					g->rideTime = 1000;
-					i32 rideW = g->cellWidth * 2;
-					i32 rideH = g->cellHeight * 2;
-					i32 rideX = rand() % (g->boardDim.w - rideW);
-					i32 rideY = rand() % (g->boardDim.h - rideH);
-					g->rideRect = (SDL_Rect){rideX, rideY, rideW, rideH};
-					// random direction, from -1, -1 to 1, 1
-					g->rideDirection = (SDL_Point){rand() % 3 - 1, rand() % 3 - 1};
-					if (g->rideDirection.x == 0 && g->rideDirection.y == 0)
+					
+					// check if the board is solved
+					printf("checking if solved...\n");
+					bool solved = true;
+					for (i32 i = 0; i < g->board->width * g->board->height; i++)
 					{
-						g->rideDirection.x = 1;
+						if (g->board->cells[i].state == CELLSTATE_EMPTY)
+						{
+							solved = false;
+							break;
+						}
+					}
+					printf("solved: %d\n", solved);
+					if (solved)
+					{
+						switchState(g, GAMESTATE_MENU);
+						switchState(g, GAMESTATE_PLAY);
+						return;
 					}
 				}
 				else
@@ -557,7 +753,7 @@ void playInput(Game *g)
 		switch (event.type)
 		{
 			case SDL_QUIT:
-				g->gameRunning = false;
+				g->running = false;
 				break;
 			case SDL_MOUSEBUTTONDOWN:
 				if (!g->piping && g->isHovered)
@@ -570,37 +766,25 @@ void playInput(Game *g)
 						g->selectedColor = hovered->color;
 						g->pipeSeqSize = 1;
 						g->pipeSeq[0] = g->hoveredCell;
-						if (hovered->state == CELLSTATE_PIPE_START)
-						{
-							g->endPoint = CELLSTATE_PIPE_END;
-						}
-						else
-						{
-							g->endPoint = CELLSTATE_PIPE_START;
-						}
+						g->endPoint = (hovered->state==CELLSTATE_PIPE_START)
+							? CELLSTATE_PIPE_END
+							: CELLSTATE_PIPE_START;
+						clearPipe(g->board, g->selectedColor);
 					}
 				}
 				break;
 			case SDL_MOUSEBUTTONUP:
 				if (g->piping)
 				{
-					for (i32 r = 0; r < g->board->height; r++)
-					{
-						for (i32 c = 0; c < g->board->width; c++)
-						{
-							Cell* cell = boardGet(g->board, r, c);
-							if (cell->color == g->selectedColor)
-							{
-								if (cell->state != CELLSTATE_PIPE_START
-									&& cell->state != CELLSTATE_PIPE_END)
-								{
-									cell->state = CELLSTATE_EMPTY;
-								}
-								cell->connection = CELLCONNECTION_NONE;
-							}
-						}
-					}
+					clearPipe(g->board, g->selectedColor);
 					g->piping = false;
+				}
+				break;
+			
+			case SDL_KEYDOWN:
+				if (event.key.keysym.sym == SDLK_p)
+				{
+					switchState(g, GAMESTATE_PAUSE);
 				}
 				break;
 		}
@@ -643,14 +827,18 @@ void playDraw(Game *g)
 		}
 	}
 
-	// draw ride
-	if (g->rideTime > 0)
-	{
-		SDL_RenderCopy(g->renderer, g->rideTexture, NULL, &g->rideRect);
-	}
-
-	SDL_RenderPresent(g->renderer);
-
+	// draw timer -- we need to create this every frame because the timer changes
+	i32 ww, wh;
+	SDL_GetWindowSize(g->window, &ww, &wh);
+	char timerText[15];
+	i32 minutes = (g->gameTimer / 1000) / 60;
+	i32 seconds = (g->gameTimer / 1000) % 60;
+	snprintf(timerText, 15, "%02i:%02i", minutes, seconds);
+	SDL_Color white = {255,255,255,255};
+	SDL_Texture *timerTexture = createSDLText(g->renderer, timerText, g->font, white);
+	MenuButton *timer = createMenuButton(timerTexture, ww / 2, 10);
+	drawMenuButton(g->renderer, timer);
+	destroyMenuButton(timer);
 }
 
 void playExit(Game *g)
@@ -659,88 +847,128 @@ void playExit(Game *g)
 	boardFree(g->board);
 }
 
-void exitInit(Game *g)
+void pauseInit(Game *g)
 {
-	g->gameRunning = false;
+	if (g->board->genState == GENSTATE_GENERATING)
+	{
+		g->board->genState = GENSTATE_PAUSE;
+	}
 }
 
-void exitInput(Game *g)
+void pauseLoop(Game *g)
 {
-
+	pauseInput(g);
+	while (g->running && g->state == GAMESTATE_PAUSE)
+	{
+		pauseDraw(g);
+		SDL_RenderPresent(g->renderer);
+		pauseInput(g);
+	}
 }
 
-void exitDraw(Game *g)
+void pauseInput(Game *g)
 {
-
+	SDL_Event event;
+	while (SDL_PollEvent(&event))
+	{
+		switch (event.type)
+		{
+			case SDL_QUIT:
+				g->running = false;
+				break;
+			case SDL_KEYDOWN:
+				switch (event.key.keysym.sym)
+				{
+					case SDLK_p:
+						switchState(g, GAMESTATE_PLAY);
+						break;
+				}
+				break;
+		}
+	}
 }
 
-void exitExit(Game *g)
+void pauseDraw(Game *g)
 {
-
+	playDraw(g);
+	SDL_SetRenderDrawBlendMode(g->renderer, SDL_BLENDMODE_BLEND);
+	SDL_SetRenderDrawColor(g->renderer, 0, 0, 0, 150);
+	SDL_RenderFillRect(g->renderer, NULL);
 }
 
-
+void pauseExit(Game *g)
+{
+	if (g->board->genState == GENSTATE_PAUSE)
+	{
+		g->board->genState = GENSTATE_GENERATING;
+	}
+}
 
 int main(int argc, char *argv[])
 {
 	Game game;
-	INITIALIZE(startSDL());
-	INITIALIZE(game.window = SDL_CreateWindow("flow", 1920, 0, 800, 600, SDL_WINDOW_SHOWN));
-	INITIALIZE(game.renderer = SDL_CreateRenderer(game.window, -1, SDL_RENDERER_ACCELERATED));
-	INITIALIZE(game.sound[SOUND_CLICK] = Mix_LoadWAV("assets/Audio/click_001.wav"));
-	INITIALIZE(game.sound[SOUND_YUH] = Mix_LoadWAV("assets/Audio/YUH.wav"));
-	INITIALIZE(game.menuMusic[MENUMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song1.wav"));
-	INITIALIZE(game.menuMusic[MENUMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-intro.wav"));
-	INITIALIZE(game.gameMusic[GAMEMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song2.wav"));
-	INITIALIZE(game.gameMusic[GAMEMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-game.wav"));
-	INITIALIZE(game.font = TTF_OpenFont("assets/Fonts/IosevkaTermNerdFont-Bold.ttf", 24));
-	INITIALIZE(game.rideTexture = IMG_LoadTexture(game.renderer, "assets/Sprites/ride.png"));
+	if (!startSDL())
+		goto cleanup;
+	if (!(game.window = SDL_CreateWindow("flow", 1920, 0, 800, 600, SDL_WINDOW_SHOWN)))
+		goto cleanup;
+	if (!(game.renderer = SDL_CreateRenderer(game.window, -1, SDL_RENDERER_ACCELERATED)))
+		goto cleanup;
+	if (!(game.sound[SOUND_CLICK] = Mix_LoadWAV("assets/Audio/click_001.wav")))
+		goto cleanup;
+	if (!(game.sound[SOUND_YUH] = Mix_LoadWAV("assets/Audio/YUH.wav")))
+		goto cleanup;
+	if (!(game.menuMusic[MENUMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song1.wav")))
+		goto cleanup;
+	if (!(game.menuMusic[MENUMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-intro.wav")))
+		goto cleanup;
+	if (!(game.gameMusic[GAMEMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song2.wav")))
+		goto cleanup;
+	if (!(game.gameMusic[GAMEMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-game.wav")))
+		goto cleanup;
+	if (!(game.font = TTF_OpenFont("assets/Fonts/IosevkaTermNerdFont-Bold.ttf", 24)))
+		goto cleanup;
 
-	i32 boardSize = argc>1 ? atoi(argv[1]) : 5;
-	i32 seed      = argc>2 ? atoi(argv[2]) : time(NULL);
-
-	if (boardSize < 2) boardSize = 2;
+	i32 seed = argc>1 ? atoi(argv[1]) : time(NULL);
 	srand(seed);
 
-	game.boardSize = boardSize < 2 ? DEFAULT_BOARD_SIZE : boardSize;
-
-	game.gameState = GAMESTATE_NONE;
+	game.boardSize = DEFAULT_BOARD_SIZE;
+	game.state = GAMESTATE_EXIT;
 	switchState(&game, GAMESTATE_MENU);
+	game.running = true;
 
-	while (game.gameRunning)
+	while (game.running)
 	{
-		switch (game.gameState)
+		switch (game.state)
 		{
 			default:
-			case GAMESTATE_COUNT:
+			case GAMESTATE_EXIT:
+				game.running = false;
+				break;
 			case GAMESTATE_INTRO:
-				introInput(&game);
-				introDraw(&game);
+				introLoop(&game);
 				break;
 			case GAMESTATE_MENU:
-				menuInput(&game);
-				menuDraw(&game);
+				menuLoop(&game);
 				break;
 			case GAMESTATE_PLAY:
-				playInput(&game);
-				playDraw(&game);
+				playLoop(&game);
 				break;
-			case GAMESTATE_EXIT:
-				exitInput(&game);
-				exitDraw(&game);
+			case GAMESTATE_PAUSE:
+				pauseLoop(&game);
 				break;
 		}
 	}
 
 cleanup:
-	SDL_DestroyRenderer(game.renderer);
-	SDL_DestroyWindow(game.window);
+	TTF_CloseFont(game.font);
 	for (i32 i = 0; i < SOUND_COUNT; i++)
 		Mix_FreeChunk(game.sound[i]);
 	for (i32 i = 0; i < MENUMUSIC_COUNT; i++)
 		Mix_FreeMusic(game.menuMusic[i]);
 	for (i32 i = 0; i < GAMEMUSIC_COUNT; i++)
 		Mix_FreeMusic(game.gameMusic[i]);
+	SDL_DestroyRenderer(game.renderer);
+	SDL_DestroyWindow(game.window);
 	quitSDL();
 	return 0;
 }

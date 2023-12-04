@@ -173,6 +173,11 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 		board->genState = GENSTATE_STOPPING;
 		return true;
 	}
+	
+	while (board->genState == GENSTATE_PAUSE)
+	{
+		SDL_Delay(100);
+	}
 
 	bool rejected[4] = {true, true, true, true};
 	i32 numRejected = 4;
