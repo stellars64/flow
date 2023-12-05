@@ -90,6 +90,7 @@ typedef struct Menu
 	MenuButton *exit;
 } Menu;
 
+// TODO: break up this monolithic struct
 typedef struct Game
 {
 	SDL_Window *window;
@@ -98,15 +99,13 @@ typedef struct Game
 	Mix_Music *menuMusic[MENUMUSIC_COUNT];
 	Mix_Music *gameMusic[GAMEMUSIC_COUNT];
 	TTF_Font *font;
-
 	Menu menu;
-
 	u64 dt;
 	u64 lastTime;
-
 	bool isTimerStarted;
 	u64 gameTimer;
-
+	u64 introTimer;
+	Sprite splash;
 	i32 boardSize;
 	Board *board;
 	bool running;
@@ -139,28 +138,22 @@ SDL_Texture* createSDLText(SDL_Renderer*, const char*, TTF_Font*, SDL_Color);
 MenuButton* createMenuButton(SDL_Texture *texture, int x, int y);
 void drawMenuButton(SDL_Renderer *renderer, MenuButton *button);
 void destroyMenuButton(MenuButton *button);
-
-
 void switchState(Game *g, GameState state);
-
 void introInit(Game *g);
 void introLoop(Game *g);
 void introInput(Game *g);
 void introDraw(Game *g);
 void introExit(Game *g);
-
 void menuInit(Game *g);
 void menuLoop(Game *g);
 void menuInput(Game *g);
 void menuDraw(Game *g);
 void menuExit(Game *g);
-
 void playInit(Game *g);
 void playLoop(Game *g);
 void playInput(Game *g);
 void playDraw(Game *g);
 void playExit(Game *g);
-
 void pauseInit(Game *g);
 void pauseLoop(Game *g);
 void pauseInput(Game *g);
@@ -328,7 +321,6 @@ SDL_Texture* createSDLText(SDL_Renderer *rdr, const char *text, TTF_Font *font, 
 	return texture;
 }
 
-// creates a button that is centered at x, y
 MenuButton* createMenuButton(SDL_Texture *texture, int x, int y)
 {
 	if (!texture)
@@ -372,9 +364,6 @@ void switchState(Game *g, GameState state)
 		return;
 	}
 
-	printf("Switching state from %d to %d\n", g->state, state);
-
-	// initialize all states after current and up to and including new state
 	if (state > g->state)
 	{
 		for (int gs = g->state + 1; gs <= state; gs++)
@@ -400,7 +389,6 @@ void switchState(Game *g, GameState state)
 		}
 	}
 
-	// exit all states after new state and up to and including current state
 	if (state < g->state)
 	{
 		for (int gs = g->state; gs > state; gs--)
@@ -431,11 +419,57 @@ void switchState(Game *g, GameState state)
 
 void introInit(Game *g)
 {
+	if (!startSDL()
+		|| !(g->window = SDL_CreateWindow("flow", 1920, 0, 800, 600, SDL_WINDOW_SHOWN))
+		|| !(g->renderer = SDL_CreateRenderer(g->window, -1, SDL_RENDERER_ACCELERATED))
+		|| !(g->sound[SOUND_CLICK] = Mix_LoadWAV("assets/Audio/click_001.wav"))
+		|| !(g->sound[SOUND_YUH] = Mix_LoadWAV("assets/Audio/YUH.wav"))
+		|| !(g->menuMusic[MENUMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song1.wav"))
+		|| !(g->menuMusic[MENUMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-intro.wav"))
+		|| !(g->gameMusic[GAMEMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song2.wav"))
+		|| !(g->gameMusic[GAMEMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-game.wav"))
+		|| !(g->font = TTF_OpenFont("assets/Fonts/IosevkaTermNerdFont-Bold.ttf", 24)))
+	{
+		fprintf(stderr, "Failed to initialize\n");
+		fprintf(stderr, "SDL Error: %s\n", SDL_GetError());
+		fprintf(stderr, "SDL_mixer Error: %s\n", Mix_GetError());
+		fprintf(stderr, "SDL_ttf Error: %s\n", TTF_GetError());
+		switchState(g, GAMESTATE_EXIT);
+		return;
+	}
 
+	srand(time(NULL));
+	g->boardSize = DEFAULT_BOARD_SIZE;
+	g->running = true;
+	g->introTimer = 3000;
+	g->splash.texture = IMG_LoadTexture(g->renderer, "assets/Sprites/splash.png");
+	if (!g->splash.texture)
+	{
+		fprintf(stderr, "Failed to load splash texture\n");
+		fprintf(stderr, "SDL Error: %s\n", SDL_GetError());
+		switchState(g, GAMESTATE_EXIT);
+		return;
+	}
 }
 void introLoop(Game *g)
 {
+	u64 currTime = SDL_GetTicks64();
+	u64 lastTime = currTime;
 
+	while (g->running && g->state == GAMESTATE_INTRO)
+	{
+		currTime = SDL_GetTicks64();
+		u64 dt = currTime - lastTime;
+		lastTime = currTime;
+
+		g->introTimer -= dt;
+		if (g->introTimer <= 0)
+			switchState(g, GAMESTATE_MENU);
+
+		introInput(g);
+		introDraw(g);
+	}
+	
 }
 
 void introInput(Game *g)
@@ -445,12 +479,25 @@ void introInput(Game *g)
 
 void introDraw(Game *g)
 {
-
+	SDL_SetRenderDrawColor(g->renderer, 0, 0, 0, 255);
+	SDL_RenderClear(g->renderer);
+	SDL_RenderCopy(g->renderer, g->splash.texture, NULL, NULL);
+	SDL_RenderPresent(g->renderer);
 }
 
 void introExit(Game *g)
 {
-
+	SDL_DestroyTexture(g->splash.texture);
+	TTF_CloseFont(g->font);
+	for (i32 i = 0; i < SOUND_COUNT; i++)
+		Mix_FreeChunk(g->sound[i]);
+	for (i32 i = 0; i < MENUMUSIC_COUNT; i++)
+		Mix_FreeMusic(g->menuMusic[i]);
+	for (i32 i = 0; i < GAMEMUSIC_COUNT; i++)
+		Mix_FreeMusic(g->gameMusic[i]);
+	SDL_DestroyRenderer(g->renderer);
+	SDL_DestroyWindow(g->window);
+	quitSDL();
 }
 
 void menuInit(Game *g)
@@ -490,18 +537,15 @@ void menuLoop(Game *g)
 
 void menuInput(Game *g)
 {
-	// mouse events
 	i32 mx, my;
 	u32 mb = SDL_GetMouseState(&mx, &my);
 
-	// set hover for buttons
 	g->menu.welcomeMsg->hovered = true;
 	g->menu.play8_8->hovered    = inBounds(mx, my, g->menu.play8_8->bounds);
 	g->menu.play9_9->hovered    = inBounds(mx, my, g->menu.play9_9->bounds);
 	g->menu.play10_10->hovered  = inBounds(mx, my, g->menu.play10_10->bounds);
 	g->menu.exit->hovered       = inBounds(mx, my, g->menu.exit->bounds);
 
-	// check for hovered and clicked
 	if (mb & SDL_BUTTON(SDL_BUTTON_LEFT))
 	{
 		if (g->menu.play8_8->hovered)
@@ -654,15 +698,13 @@ void playInput(Game *g)
 		{
 			g->isTimerStarted = true;
 			g->gameTimer = 1000 * 60 * 1;
-			g->gameTimer += 15000; // add 15 seconds
+			g->gameTimer += 15000;
 		}
 	}
 
-	// update timer
 	g->gameTimer -= g->dt;
 	if (g->gameTimer <= 0)
 	{
-		// just switch to the menu for now...
 		switchState(g, GAMESTATE_MENU);
 	}
 
@@ -698,8 +740,7 @@ void playInput(Game *g)
 					g->pipeSeqSize = 0;
 					Mix_PlayChannel(-1, g->sound[SOUND_YUH], 0);
 					
-					// check if the board is solved
-					printf("checking if solved...\n");
+					// TODO: if player solves board with less than all pipes, will not trigger
 					bool solved = true;
 					for (i32 i = 0; i < g->board->width * g->board->height; i++)
 					{
@@ -709,7 +750,6 @@ void playInput(Game *g)
 							break;
 						}
 					}
-					printf("solved: %d\n", solved);
 					if (solved)
 					{
 						switchState(g, GAMESTATE_MENU);
@@ -827,7 +867,6 @@ void playDraw(Game *g)
 		}
 	}
 
-	// draw timer -- we need to create this every frame because the timer changes
 	i32 ww, wh;
 	SDL_GetWindowSize(g->window, &ww, &wh);
 	char timerText[15];
@@ -907,34 +946,7 @@ void pauseExit(Game *g)
 int main(int argc, char *argv[])
 {
 	Game game;
-	if (!startSDL())
-		goto cleanup;
-	if (!(game.window = SDL_CreateWindow("flow", 1920, 0, 800, 600, SDL_WINDOW_SHOWN)))
-		goto cleanup;
-	if (!(game.renderer = SDL_CreateRenderer(game.window, -1, SDL_RENDERER_ACCELERATED)))
-		goto cleanup;
-	if (!(game.sound[SOUND_CLICK] = Mix_LoadWAV("assets/Audio/click_001.wav")))
-		goto cleanup;
-	if (!(game.sound[SOUND_YUH] = Mix_LoadWAV("assets/Audio/YUH.wav")))
-		goto cleanup;
-	if (!(game.menuMusic[MENUMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song1.wav")))
-		goto cleanup;
-	if (!(game.menuMusic[MENUMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-intro.wav")))
-		goto cleanup;
-	if (!(game.gameMusic[GAMEMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song2.wav")))
-		goto cleanup;
-	if (!(game.gameMusic[GAMEMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-game.wav")))
-		goto cleanup;
-	if (!(game.font = TTF_OpenFont("assets/Fonts/IosevkaTermNerdFont-Bold.ttf", 24)))
-		goto cleanup;
-
-	i32 seed = argc>1 ? atoi(argv[1]) : time(NULL);
-	srand(seed);
-
-	game.boardSize = DEFAULT_BOARD_SIZE;
-	game.state = GAMESTATE_EXIT;
-	switchState(&game, GAMESTATE_MENU);
-	game.running = true;
+	switchState(&game, GAMESTATE_INTRO);
 
 	while (game.running)
 	{
@@ -958,17 +970,5 @@ int main(int argc, char *argv[])
 				break;
 		}
 	}
-
-cleanup:
-	TTF_CloseFont(game.font);
-	for (i32 i = 0; i < SOUND_COUNT; i++)
-		Mix_FreeChunk(game.sound[i]);
-	for (i32 i = 0; i < MENUMUSIC_COUNT; i++)
-		Mix_FreeMusic(game.menuMusic[i]);
-	for (i32 i = 0; i < GAMEMUSIC_COUNT; i++)
-		Mix_FreeMusic(game.gameMusic[i]);
-	SDL_DestroyRenderer(game.renderer);
-	SDL_DestroyWindow(game.window);
-	quitSDL();
 	return 0;
 }
