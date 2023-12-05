@@ -135,7 +135,7 @@ void drawPipe(SDL_Renderer*, SDL_Rect*, Cell*);
 void setCellConnection(Board*, SDL_Point, SDL_Point);
 void clearPipe(Board *b, CellColor color);
 SDL_Texture* createSDLText(SDL_Renderer*, const char*, TTF_Font*, SDL_Color);
-MenuButton* createMenuButton(SDL_Texture *texture, int x, int y);
+MenuButton* createMenuButton(SDL_Texture *texture, i32 x, i32 y);
 void drawMenuButton(SDL_Renderer *renderer, MenuButton *button);
 void destroyMenuButton(MenuButton *button);
 void switchState(Game *g, GameState state);
@@ -164,22 +164,26 @@ bool startSDL()
 {
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 	{
-		fprintf(stderr, "SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
+		fprintf(stderr, "SDL could not initialize! SDL_Error: %s\n",
+		        SDL_GetError());
 		return false;
 	}
 	if (IMG_Init(IMG_INIT_PNG) < 0)
 	{
-		fprintf(stderr, "SDL_image could not initialize! SDL_image Error: %s\n", IMG_GetError());
+		fprintf(stderr, "SDL_image could not initialize! SDL_image Error: %s\n",
+		        IMG_GetError());
 		return false;
 	}
 	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0)
 	{
-		fprintf(stderr, "SDL_mixer could not initialize! SDL_mixer Error: %s\n", Mix_GetError());
+		fprintf(stderr, "SDL_mixer could not initialize! SDL_mixer Error: %s\n",
+		        Mix_GetError());
 		return false;
 	}
 	if (TTF_Init() < 0)
 	{
-		fprintf(stderr, "SDL_ttf could not initialize! SDL_ttf Error: %s\n", TTF_GetError());
+		fprintf(stderr, "SDL_ttf could not initialize! SDL_ttf Error: %s\n",
+		        TTF_GetError());
 		return false;
 	}
 	return true;
@@ -195,7 +199,8 @@ void quitSDL()
 
 bool inBounds(i32 x, i32 y, SDL_Rect rect)
 {
-	return (x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h);
+	return (   x >= rect.x && x <= rect.x + rect.w
+	        && y >= rect.y && y <= rect.y + rect.h);
 }
 
 bool pointsEqual(SDL_Point a, SDL_Point b)
@@ -222,8 +227,8 @@ void drawPipeEnd(SDL_Renderer *renderer, SDL_Rect *cellDim, SDL_Color color)
 	SDL_RenderFillRect(renderer, &circle);
 }
 
-void drawPipeSection(SDL_Renderer *renderer, SDL_Rect *cellDim, CellConnection connection,
-					 SDL_Color color)
+void drawPipeSection(SDL_Renderer *renderer, SDL_Rect *cellDim,
+                     CellConnection connection, SDL_Color color)
 {
 	SDL_Rect dest;
 	switch (connection)
@@ -264,11 +269,17 @@ void drawPipe(SDL_Renderer *renderer, SDL_Rect *cellDim, Cell *cell)
 {
 	SDL_Color color = colorMap[cell->color];
 
-	if (cell->state == CELLSTATE_PIPE_START || cell->state == CELLSTATE_PIPE_END)
+	if (   cell->state == CELLSTATE_PIPE_START
+	    || cell->state == CELLSTATE_PIPE_END)
+	{
 		drawPipeEnd(renderer, cellDim, color);
+	}
 
-	if (cell->state != CELLSTATE_EMPTY && cell->connection != CELLCONNECTION_NONE)
+	if (   cell->state      != CELLSTATE_EMPTY
+		&& cell->connection != CELLCONNECTION_NONE)
+	{
 		drawPipeSection(renderer, cellDim, cell->connection, color);
+	}
 }
 
 void setCellConnection(Board *board, SDL_Point cell1, SDL_Point cell2)
@@ -295,7 +306,8 @@ void clearPipe(Board *b, CellColor color)
 		if (cell->color == color)
 		{
 			cell->connection = CELLCONNECTION_NONE;
-			if (cell->state != CELLSTATE_PIPE_START && cell->state != CELLSTATE_PIPE_END)
+			if (   cell->state != CELLSTATE_PIPE_START
+				&& cell->state != CELLSTATE_PIPE_END)
 			{
 				cell->state = CELLSTATE_EMPTY;
 			}
@@ -303,7 +315,8 @@ void clearPipe(Board *b, CellColor color)
 	}
 }
 
-SDL_Texture* createSDLText(SDL_Renderer *rdr, const char *text, TTF_Font *font, SDL_Color color)
+SDL_Texture* createSDLText(SDL_Renderer *rdr, const char *text, TTF_Font *font,
+                           SDL_Color color)
 {
 	SDL_Surface *surf = TTF_RenderText_Blended(font, text, color);
 	if (!surf)
@@ -321,7 +334,7 @@ SDL_Texture* createSDLText(SDL_Renderer *rdr, const char *text, TTF_Font *font, 
 	return texture;
 }
 
-MenuButton* createMenuButton(SDL_Texture *texture, int x, int y)
+MenuButton* createMenuButton(SDL_Texture *texture, i32 x, i32 y)
 {
 	if (!texture)
 		return NULL;
@@ -366,7 +379,7 @@ void switchState(Game *g, GameState state)
 
 	if (state > g->state)
 	{
-		for (int gs = g->state + 1; gs <= state; gs++)
+		for (i32 gs = g->state + 1; gs <= state; gs++)
 		{
 			switch (gs)
 			{
@@ -391,7 +404,7 @@ void switchState(Game *g, GameState state)
 
 	if (state < g->state)
 	{
-		for (int gs = g->state; gs > state; gs--)
+		for (i32 gs = g->state; gs > state; gs--)
 		{
 			switch (gs)
 			{
@@ -420,15 +433,30 @@ void switchState(Game *g, GameState state)
 void introInit(Game *g)
 {
 	if (!startSDL()
-		|| !(g->window = SDL_CreateWindow("flow", 1920, 0, 800, 600, SDL_WINDOW_SHOWN))
-		|| !(g->renderer = SDL_CreateRenderer(g->window, -1, SDL_RENDERER_ACCELERATED))
+		|| !(g->window
+		     = SDL_CreateWindow("flow", 1920, 0, 800, 600, SDL_WINDOW_SHOWN))
+
+		|| !(g->renderer
+		     = SDL_CreateRenderer(g->window, -1, SDL_RENDERER_ACCELERATED))
+
 		|| !(g->sound[SOUND_CLICK] = Mix_LoadWAV("assets/Audio/click_001.wav"))
-		|| !(g->sound[SOUND_YUH] = Mix_LoadWAV("assets/Audio/YUH.wav"))
-		|| !(g->menuMusic[MENUMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song1.wav"))
-		|| !(g->menuMusic[MENUMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-intro.wav"))
-		|| !(g->gameMusic[GAMEMUSIC_001] = Mix_LoadMUS("assets/Audio/flow-song2.wav"))
-		|| !(g->gameMusic[GAMEMUSIC_002] = Mix_LoadMUS("assets/Audio/flow-song-3-game.wav"))
-		|| !(g->font = TTF_OpenFont("assets/Fonts/IosevkaTermNerdFont-Bold.ttf", 24)))
+
+		|| !(g->sound[SOUND_YUH]   = Mix_LoadWAV("assets/Audio/YUH.wav"))
+
+		|| !(g->menuMusic[MENUMUSIC_001]
+		     = Mix_LoadMUS("assets/Audio/flow-song1.wav"))
+
+		|| !(g->menuMusic[MENUMUSIC_002]
+		     = Mix_LoadMUS("assets/Audio/flow-song-3-intro.wav"))
+
+		|| !(g->gameMusic[GAMEMUSIC_001]
+		     = Mix_LoadMUS("assets/Audio/flow-song2.wav"))
+
+		|| !(g->gameMusic[GAMEMUSIC_002]
+		     = Mix_LoadMUS("assets/Audio/flow-song-3-game.wav"))
+
+		|| !(g->font
+		     = TTF_OpenFont("assets/Fonts/IosevkaTermNerdFont-Bold.ttf", 24)))
 	{
 		fprintf(stderr, "Failed to initialize\n");
 		fprintf(stderr, "SDL Error: %s\n", SDL_GetError());
@@ -442,7 +470,8 @@ void introInit(Game *g)
 	g->boardSize = DEFAULT_BOARD_SIZE;
 	g->running = true;
 	g->introTimer = 3000;
-	g->splash.texture = IMG_LoadTexture(g->renderer, "assets/Sprites/splash.png");
+	g->splash.texture
+	    = IMG_LoadTexture(g->renderer, "assets/Sprites/splash.png");
 	if (!g->splash.texture)
 	{
 		fprintf(stderr, "Failed to load splash texture\n");
@@ -469,7 +498,7 @@ void introLoop(Game *g)
 		introInput(g);
 		introDraw(g);
 	}
-	
+
 }
 
 void introInput(Game *g)
@@ -617,7 +646,8 @@ void menuExit(Game *g)
 void playInit(Game *g)
 {
 	g->board = boardCreate(g->boardSize, g->boardSize);
-	SDL_CreateThread((SDL_ThreadFunction)boardGenerate, "boardGenThread", g->board);
+	SDL_ThreadFunction boardGenFunc = (SDL_ThreadFunction)boardGenerate;
+	SDL_CreateThread(boardGenFunc, "boardGenThread", g->board);
 
 	i32 windowWidth, windowHeight;
 	SDL_GetWindowSize(g->window, &windowWidth, &windowHeight);
@@ -717,13 +747,16 @@ void playInput(Game *g)
 		g->hoveredCell.y = (mouse.y - g->boardDim.y) / g->cellHeight;
 		g->hoveredCell.x = (mouse.x - g->boardDim.x) / g->cellWidth;
 
-		if (g->piping && boardBoundsCheck(g->board, g->hoveredCell.y, g->hoveredCell.x)
+		if (g->piping
+		    && boardBoundsCheck(g->board, g->hoveredCell.y, g->hoveredCell.x)
 			&& pointsAdjacent(g->hoveredCell, g->pipeSeq[g->pipeSeqSize - 1]))
 		{
-			Cell* hovered = boardGet(g->board, g->hoveredCell.y, g->hoveredCell.x);
+			Cell* hovered
+			    = boardGet(g->board, g->hoveredCell.y, g->hoveredCell.x);
 
 			if (hovered->state == CELLSTATE_EMPTY
-				|| (hovered->state == g->endPoint && hovered->color == g->selectedColor))
+				|| (   hovered->state == g->endPoint
+			        && hovered->color == g->selectedColor))
 			{
 				g->pipeSeq[g->pipeSeqSize] = g->hoveredCell;
 				g->pipeSeqSize += 1;
@@ -739,8 +772,9 @@ void playInput(Game *g)
 					g->piping = false;
 					g->pipeSeqSize = 0;
 					Mix_PlayChannel(-1, g->sound[SOUND_YUH], 0);
-					
-					// TODO: if player solves board with less than all pipes, will not trigger
+
+					// TODO: if player solves board with less than all pipes,
+					// will not trigger
 					bool solved = true;
 					for (i32 i = 0; i < g->board->width * g->board->height; i++)
 					{
@@ -760,7 +794,8 @@ void playInput(Game *g)
 				else
 				{
 					hovered->color = g->selectedColor;
-					boardSetState(g->board, g->hoveredCell.y, g->hoveredCell.x, CELLSTATE_PIPE);
+					boardSetState(g->board, g->hoveredCell.y, g->hoveredCell.x,
+					    CELLSTATE_PIPE);
 					Mix_PlayChannel(-1, g->sound[SOUND_CLICK], 0);
 				}
 			}
@@ -770,7 +805,8 @@ void playInput(Game *g)
 				SDL_Point *currPipe = &g->pipeSeq[g->pipeSeqSize - 1];
 				if (pointsEqual(g->hoveredCell, *prevPipe))
 				{
-					boardGet(g->board, (*currPipe).y, (*currPipe).x)->state = CELLSTATE_EMPTY;
+					boardGet(g->board, (*currPipe).y, (*currPipe).x)->state
+					    = CELLSTATE_EMPTY;
 					(*currPipe) = (SDL_Point){0, 0};
 
 					boardGet(g->board, (*prevPipe).y, (*prevPipe).x)->connection
@@ -798,7 +834,8 @@ void playInput(Game *g)
 			case SDL_MOUSEBUTTONDOWN:
 				if (!g->piping && g->isHovered)
 				{
-					Cell *hovered = boardGet(g->board, g->hoveredCell.y, g->hoveredCell.x);
+					Cell *hovered
+					    = boardGet(g->board, g->hoveredCell.y, g->hoveredCell.x);
 					if (hovered->state == CELLSTATE_PIPE_START
 						|| hovered->state == CELLSTATE_PIPE_END)
 					{
@@ -820,7 +857,6 @@ void playInput(Game *g)
 					g->piping = false;
 				}
 				break;
-			
 			case SDL_KEYDOWN:
 				if (event.key.keysym.sym == SDLK_p)
 				{
@@ -874,7 +910,8 @@ void playDraw(Game *g)
 	i32 seconds = (g->gameTimer / 1000) % 60;
 	snprintf(timerText, 15, "%02i:%02i", minutes, seconds);
 	SDL_Color white = {255,255,255,255};
-	SDL_Texture *timerTexture = createSDLText(g->renderer, timerText, g->font, white);
+	SDL_Texture *timerTexture
+	    = createSDLText(g->renderer, timerText, g->font, white);
 	MenuButton *timer = createMenuButton(timerTexture, ww / 2, 10);
 	drawMenuButton(g->renderer, timer);
 	destroyMenuButton(timer);
@@ -943,7 +980,7 @@ void pauseExit(Game *g)
 	}
 }
 
-int main(int argc, char *argv[])
+i32 main(i32 argc, char *argv[])
 {
 	Game game;
 	switchState(&game, GAMESTATE_INTRO);

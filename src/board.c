@@ -7,9 +7,10 @@
 
 #include "board.h"
 
-bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shortestPipeLength);
-bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shortestPipeLength,
-			   i32 currentSize, i32 row, i32 col);
+bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe,
+                i32 shortestPipeLength);
+bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe,
+               i32 shortestPipeLength, i32 currentSize, i32 row, i32 col);
 
 Board* boardCreate(i32 width, i32 height)
 {
@@ -79,7 +80,8 @@ void boardPrint(Board *board)
 	}
 }
 
-void boardDfsFillState(Board *board, i32 row, i32 col, CellState oldState, CellState newState)
+void boardDfsFillState(Board *board, i32 row, i32 col, CellState oldState,
+                       CellState newState)
 {
 	if (!boardBoundsCheck(board, row, col))
 		return;
@@ -124,7 +126,8 @@ bool boardIsEmptyConnected(Board *board, i32 row, i32 col)
 	i32 emptyRow = emptyIndex / board->width;
 	i32 emptyCol = emptyIndex % board->width;
 
-	boardDfsFillState(board, emptyRow, emptyCol, CELLSTATE_EMPTY, CELLSTATE_EMPTY_MARKED);
+	boardDfsFillState(board, emptyRow, emptyCol,
+	                  CELLSTATE_EMPTY, CELLSTATE_EMPTY_MARKED);
 
 	bool allEmptyVisited = true;
 	for (i32 i = 0; i < size; i++)
@@ -151,7 +154,8 @@ i32 boardAdjacentWithColor(Board *board, i32 row, i32 col, CellColor color)
 		i32 adjRow = row + dirs[d].y;
 		i32 adjCol = col + dirs[d].x;
 
-		if (adjRow >= 0 && adjRow < board->height && adjCol >= 0 && adjCol < board->width
+		if (   adjRow >= 0 && adjRow < board->height
+			&& adjCol >= 0 && adjCol < board->width
 			&& boardGet(board, adjRow, adjCol)->state != CELLSTATE_EMPTY
 			&& boardGet(board, adjRow, adjCol)->state != CELLSTATE_EMPTY_MARKED
 			&& boardGet(board, adjRow, adjCol)->color == color)
@@ -164,8 +168,8 @@ i32 boardAdjacentWithColor(Board *board, i32 row, i32 col, CellColor color)
 }
 
 
-bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shortestPipeLength,
-			   i32 currentSize, i32 row, i32 col)
+bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe,
+               i32 shortestPipeLength, i32 currentSize, i32 row, i32 col)
 {
 	// check first if we want to stop generating
 	if (board->genState == GENSTATE_STOPREQUESTED)
@@ -173,7 +177,7 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 		board->genState = GENSTATE_STOPPING;
 		return true;
 	}
-	
+
 	while (board->genState == GENSTATE_PAUSE)
 	{
 		SDL_Delay(100);
@@ -188,7 +192,8 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 		i32 adjRow = row + dirs[d].y;
 		i32 adjCol = col + dirs[d].x;
 
-		if (adjRow >= 0 && adjRow < board->height && adjCol >= 0 && adjCol < board->width
+		if (   adjRow >= 0 && adjRow < board->height
+			&& adjCol >= 0 && adjCol < board->width
 			&& boardGet(board, adjRow, adjCol)->state == CELLSTATE_EMPTY
 			&& boardAdjacentWithColor(board, adjRow, adjCol, currentPipe) < 2
 			&& boardIsEmptyConnected(board, adjRow, adjCol))
@@ -238,13 +243,14 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 		{
 			adjCell->state = CELLSTATE_PIPE_END;
 			placed = (currentPipe == numPipes - 1)
-			         || placeStart(board, pipes, numPipes, currentPipe + 1, shortestPipeLength);
+			         || placeStart(board, pipes, numPipes, currentPipe + 1,
+					               shortestPipeLength);
 		}
 		else
 		{
 			adjCell->state = CELLSTATE_PIPE;
-			placed = placePipe(board, pipes, numPipes, currentPipe, shortestPipeLength, currentSize,
-			                   adjRow, adjCol);
+			placed = placePipe(board, pipes, numPipes, currentPipe,
+					           shortestPipeLength, currentSize, adjRow, adjCol);
 		}
 
 		if (!placed)
@@ -261,7 +267,8 @@ bool placePipe(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shor
 	return false;
 }
 
-bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 shortestPipeLength)
+bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe,
+                i32 shortestPipeLength)
 {
 	i32 rejectedSize = board->width * board->height;
 
@@ -296,7 +303,8 @@ bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 sho
 			i32 current = 0;
 			for (i32 i = 0; i < boardSize; i += 1)
 			{
-				if (boardGetI(board, i)->state == CELLSTATE_EMPTY && !rejected[i])
+				if (boardGetI(board, i)->state == CELLSTATE_EMPTY
+				    && !rejected[i])
 				{
 					if (current == offset)
 					{
@@ -327,8 +335,8 @@ bool placeStart(Board *board, i32 *pipes, i32 numPipes, i32 currentPipe, i32 sho
 		boardGetI(board, startIndex)->state = CELLSTATE_PIPE_START;
 		boardGetI(board, startIndex)->color = currentPipe;
 
-		bool placed = placePipe(board, pipes, numPipes, currentPipe, shortestPipeLength, 1,
-		                        startRow, startCol);
+		bool placed = placePipe(board, pipes, numPipes, currentPipe,
+						        shortestPipeLength, 1, startRow, startCol);
 		if (placed)
 		{
 			free(rejected);
@@ -397,7 +405,8 @@ bool boardGenerate(Board *board)
 	{
 		for (Cell *c = board->cells; c < board->cells+size; c++)
 		{
-			if (c->state != CELLSTATE_PIPE_START && c->state != CELLSTATE_PIPE_END)
+			if (   c->state != CELLSTATE_PIPE_START
+				&& c->state != CELLSTATE_PIPE_END)
 			{
 				c->state = CELLSTATE_EMPTY;
 			}
@@ -405,7 +414,8 @@ bool boardGenerate(Board *board)
 		}
 		printf("Generated!\n");
 		u64 endTime = SDL_GetPerformanceCounter();
-		printf("Time taken: %f\n", (endTime - startTime) / (f64)SDL_GetPerformanceFrequency());
+		printf("Time taken: %f\n",
+		    (endTime - startTime) / (f64)SDL_GetPerformanceFrequency());
 	}
 
 	free(pipes);
